@@ -1,0 +1,98 @@
+# lxdb Default Theme
+# Color definitions: black, red, green, yellow, blue, magenta, cyan, white, gray
+# bright_red, bright_green, bright_yellow, bright_blue, bright_magenta, bright_cyan, bright_white
+# Styles: bold, italic, underline
+
+banner:
+  fg: cyan
+  bold: true
+
+current_arrow:
+  fg: green
+  bold: true
+
+marker:
+  fg: yellow
+  bold: true
+
+register_name:
+  fg: blue
+  bold: true
+
+register_value:
+  fg: white
+
+register_changed:
+  fg: red
+  bold: true
+
+register_zero:
+  fg: gray
+
+flag_set:
+  fg: green
+  bold: true
+
+flag_unset:
+  fg: gray
+
+mnemonic_branch:
+  fg: yellow
+  bold: true
+
+mnemonic_call:
+  fg: bright_green
+  bold: true
+
+mnemonic_ret:
+  fg: bright_red
+  bold: true
+
+mnemonic_stack:
+  fg: magenta
+
+mnemonic_data:
+  fg: blue
+
+mnemonic_compare:
+  fg: cyan
+
+mnemonic_nop:
+  fg: gray
+
+mnemonic_syscall:
+  fg: bright_yellow
+  bold: true
+
+address:
+  fg: cyan
+
+symbol:
+  fg: yellow
+
+string:
+  fg: green
+
+comment:
+  fg: gray
+  italic: true
+
+prompt:
+  fg: green
+  bold: true
+
+prompt_idle:
+  fg: blue
+
+error:
+  fg: red
+  bold: true
+
+warning:
+  fg: yellow
+
+info:
+  fg: blue
+
+success:
+  fg: green

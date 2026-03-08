@@ -1,0 +1,40 @@
+# Bundler
+/.bundle/
+/vendor/bundle/
+Gemfile.lock
+
+# Gem build
+/*.gem
+/pkg/
+
+# RSpec
+/spec/examples.txt
+/coverage/
+
+# Editor/IDE
+/.idea/
+/.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Ruby
+*.gem
+*.rbc
+/.config
+/InstalledFiles
+/tmp/
+
+# Documentation
+/doc/
+/.yardoc/
+/_yardoc/
+
+# Environment
+/.env
+/.env.local
+
+# Debug
+/log/
+*.log

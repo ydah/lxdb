@@ -1,0 +1,84 @@
+#!/usr/bin/env ruby
+# frozen_string_literal: true
+
+require "bundler/setup"
+require "lxdb"
+require "optparse"
+
+options = {}
+
+parser = OptionParser.new do |opts|
+  opts.banner = "Usage: lxdb [options] [executable] [-- args...]"
+
+  opts.on("-p", "--pid PID", Integer, "Attach to process") do |pid|
+    options[:pid] = pid
+  end
+
+  opts.on("-c", "--command CMD", "Execute command on startup") do |cmd|
+    options[:commands] ||= []
+    options[:commands] << cmd
+  end
+
+  opts.on("--no-color", "Disable color output") do
+    options[:no_color] = true
+  end
+
+  opts.on("-t", "--tui", "Start in TUI mode") do
+    options[:tui] = true
+  end
+
+  opts.on("-v", "--version", "Show version") do
+    puts "lxdb version #{Lxdb::VERSION}"
+    exit
+  end
+
+  opts.on("-h", "--help", "Show this help") do
+    puts opts
+    exit
+  end
+end
+
+# Parse arguments, stopping at '--'
+args = ARGV.dup
+if (idx = args.index("--"))
+  args[(idx + 1)..]
+  args = args[0...idx]
+end
+
+parser.parse!(args)
+executable = args.first
+
+# Create config
+config = Lxdb::Config.new
+config.color_enabled = !options[:no_color]
+
+# Start session
+begin
+  session = Lxdb.start(executable, config: config)
+
+  # Handle --pid
+  if options[:pid]
+    session.attach(options[:pid])
+  end
+
+  # Execute startup commands
+  options[:commands]&.each do |cmd|
+    puts "> #{cmd}"
+    session.execute_command(cmd)
+  end
+
+  # Run interface
+  if options[:tui]
+    Lxdb::UI::TUI::Application.new(session).run
+  else
+    Lxdb::UI::CLI::REPL.new(session).run
+  end
+rescue Lxdb::Error => e
+  warn "Error: #{e.message}"
+  exit 1
+rescue Interrupt
+  puts "\nInterrupted"
+  exit 130
+ensure
+  session&.terminate
+end
