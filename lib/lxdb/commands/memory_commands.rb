@@ -281,9 +281,8 @@ module Lxdb
       def execute(args)
         require_stopped!
 
-        pattern = args.first
-        region_filter = args[1]
-        raise CommandError, "Usage: search <pattern|0xhex>" unless pattern
+        pattern, region_filter, max_results = parse_search_args(args)
+        raise CommandError, "Usage: search <pattern|0xhex> [region] [--limit N]" unless pattern
 
         bytes = parse_pattern(pattern)
         raise CommandError, "Search pattern is empty" if bytes.empty?
@@ -291,7 +290,6 @@ module Lxdb
         regions = resolve_search_regions(region_filter)
         raise CommandError, "No memory regions matched the request" if regions.empty?
 
-        max_results = 200
         matches = []
         regions.each do |region_info|
           region_matches = search_region(region_info, bytes)
@@ -316,6 +314,41 @@ module Lxdb
       end
 
       private
+
+      def parse_search_args(args)
+        positional = []
+        max_results = 200
+        tokens = args.dup
+
+        until tokens.empty?
+          token = tokens.shift.to_s
+
+          case token
+          when "--limit", "--max-results"
+            max_results = parse_max_results(tokens.shift)
+          when /\A--(?:limit|max-results)=(.+)\z/
+            max_results = parse_max_results(Regexp.last_match(1))
+          when /\A(?:limit|max|results)=(.+)\z/i
+            max_results = parse_max_results(Regexp.last_match(1))
+          else
+            positional << token
+          end
+        end
+
+        raise CommandError, "Usage: search <pattern|0xhex> [region] [--limit N]" if positional.size > 2
+
+        [positional[0], positional[1], max_results]
+      end
+
+      def parse_max_results(raw)
+        value = raw.to_s
+        raise CommandError, "Search limit must be a positive integer" unless value.match?(/\A\d+\z/)
+
+        parsed = value.to_i
+        raise CommandError, "Search limit must be a positive integer" unless parsed.positive?
+
+        parsed
+      end
 
       def parse_pattern(raw)
         return "".b if raw.nil?
