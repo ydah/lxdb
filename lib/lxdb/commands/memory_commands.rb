@@ -12,11 +12,117 @@ module Lxdb
         raise CommandError, "Usage: examine <address>" unless address
 
         count = (args[1] || 16).to_i
+        format_spec = parse_format_spec(args[2])
 
-        output(hexdump(address, count))
+        if format_spec
+          output(format_memory(address, count.positive? ? count : 1, format_spec))
+        else
+          output(hexdump(address, count.positive? ? count : 16))
+        end
       end
 
       private
+
+      FORMAT_CHARS = %w[x d u o t a c s i].freeze
+      UNIT_SIZES = {
+        "b" => 1,
+        "h" => 2,
+        "w" => 4,
+        "g" => 8
+      }.freeze
+
+      def parse_format_spec(raw)
+        return nil if raw.nil? || raw.empty?
+
+        spec = { format: "x", unit_size: session.architecture.pointer_size }
+        raw.each_char do |char|
+          if UNIT_SIZES.key?(char)
+            spec[:unit_size] = UNIT_SIZES[char]
+          elsif FORMAT_CHARS.include?(char)
+            spec[:format] = char
+          end
+        end
+        spec
+      end
+
+      def format_memory(address, count, spec)
+        return disassemble_memory(address, count) if spec[:format] == "i"
+        return format_string(address, count) if spec[:format] == "s"
+
+        unit_size = spec[:unit_size]
+        data = session.read_memory(address, count * unit_size)
+        return c("Failed to read memory at #{format_address(address)}", :error) unless data
+
+        values = data.bytes.each_slice(unit_size).take(count).map.with_index do |bytes, index|
+          next if bytes.size < unit_size
+
+          value = unpack_value(bytes.pack("C*"), unit_size)
+          [address + (index * unit_size), value]
+        end.compact
+
+        values_per_line = [16 / unit_size, 1].max
+        values.each_slice(values_per_line).map do |entries|
+          line_address = c(format_address(entries.first[0]), :address)
+          formatted = entries.map { |_entry_address, value| format_examined_value(value, spec[:format], unit_size) }
+          "#{line_address}: #{formatted.join("  ")}"
+        end.join("\n")
+      end
+
+      def disassemble_memory(address, count)
+        session.execute_command("disassemble -s #{address} -c #{count}")
+      end
+
+      def format_string(address, count)
+        value = session.read_string(address, max_length: count)
+        return c("Failed to read string at #{format_address(address)}", :error) unless value
+
+        "#{c(format_address(address), :address)}: #{c(value.inspect, :string)}"
+      end
+
+      def unpack_value(data, unit_size)
+        case unit_size
+        when 1
+          data.unpack1("C")
+        when 2
+          data.unpack1(session.architecture.endian == :little ? "v" : "n")
+        when 4
+          data.unpack1(session.architecture.endian == :little ? "V" : "N")
+        else
+          data.unpack1(session.architecture.endian == :little ? "Q<" : "Q>")
+        end
+      end
+
+      def format_examined_value(value, format_char, unit_size)
+        case format_char
+        when "d"
+          signed_value(value, unit_size).to_s
+        when "u"
+          value.to_s
+        when "o"
+          "0#{value.to_s(8)}"
+        when "t"
+          value.to_s(2)
+        when "a"
+          format_address(value)
+        when "c"
+          printable_byte?(value) ? "'#{value.chr}'" : format("0x%02x", value & 0xff)
+        else
+          format("0x%0#{unit_size * 2}x", value)
+        end
+      end
+
+      def signed_value(value, unit_size)
+        bits = unit_size * 8
+        sign_bit = 1 << (bits - 1)
+        return value unless (value & sign_bit) != 0
+
+        value - (1 << bits)
+      end
+
+      def printable_byte?(value)
+        byte = value & 0xff
+        byte >= 0x20 && byte <= 0x7e
+      end
 
       def hexdump(address, size)
         lines = []

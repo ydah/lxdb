@@ -130,7 +130,7 @@ session.terminate
 
 | Command | Description |
 |---------|-------------|
-| `x/<n><f> <addr>` | Examine memory (x/16gx $rsp) |
+| `x/<n><fmt><unit> <addr>` | Examine memory (x/16gx $rsp) |
 | `telescope <addr> [count]` | Smart pointer chain display |
 | `hexdump <addr> <size>` | Hex dump memory region |
 | `search <pattern> [region]` | Search memory for pattern |
@@ -151,7 +151,7 @@ session.terminate
 |---------|-------------|
 | `heap [count]` / `heap chunks [arena] [count]` | List heap chunks |
 | `heap bins [type] [arena]` | Show bin contents |
-| `heap tcache [arena]` | Show tcache entries |
+| `heap tcache` | Show current thread tcache entries |
 | `heap arena [arena]` | Show arena details |
 | `heap arenas` | List all arenas |
 
