@@ -11,8 +11,9 @@ module Lxdb
         address = parse_address(args.first)
         raise CommandError, "Usage: examine <address>" unless address
 
-        count = (args[1] || 16).to_i
-        format_spec = parse_format_spec(args[2])
+        options = parse_examine_options(args[1..] || [])
+        count = options[:count]
+        format_spec = options[:format_spec]
 
         if format_spec
           output(format_memory(address, count.positive? ? count : 1, format_spec))
@@ -30,6 +31,41 @@ module Lxdb
         "w" => 4,
         "g" => 8
       }.freeze
+      DEFAULT_HEXDUMP_SIZE = 16
+      DEFAULT_FORMAT_COUNT = 1
+      DEFAULT_STRING_LENGTH = 256
+
+      def parse_examine_options(args)
+        count = nil
+        raw_format = nil
+
+        args.each do |arg|
+          token = arg.to_s
+          if count.nil? && token.match?(/\A\d+\z/)
+            count = token.to_i
+          elsif raw_format.nil? && format_spec_token?(token)
+            raw_format = token
+          end
+        end
+
+        format_spec = parse_format_spec(raw_format)
+        count = default_count(format_spec) unless count&.positive?
+
+        { count: count, format_spec: format_spec }
+      end
+
+      def format_spec_token?(token)
+        return false if token.empty?
+
+        token.each_char.all? { |char| FORMAT_CHARS.include?(char) || UNIT_SIZES.key?(char) }
+      end
+
+      def default_count(format_spec)
+        return DEFAULT_HEXDUMP_SIZE unless format_spec
+        return DEFAULT_STRING_LENGTH if format_spec[:format] == "s"
+
+        DEFAULT_FORMAT_COUNT
+      end
 
       def parse_format_spec(raw)
         return nil if raw.nil? || raw.empty?

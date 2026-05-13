@@ -17,10 +17,7 @@ module Lxdb
 
         normalized = [args[0]]
         normalized << count.to_s if count && count.positive?
-        if format_spec && !format_spec.empty?
-          normalized << "1" unless count && count.positive?
-          normalized << format_spec
-        end
+        normalized << format_spec if format_spec && !format_spec.empty?
         normalized += args[1..] if args.length > 1
         ["examine", normalized]
       end
