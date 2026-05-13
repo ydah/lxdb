@@ -84,8 +84,15 @@ module Lxdb
       def current_sp
         session.read_register(architecture.stack_pointer)
       end
+
+      def self.install!
+        return unless Lxdb::Plugins.const_defined?(:Base, false)
+
+        plugin_base = Lxdb::Plugins.const_get(:Base)
+        plugin_base.include(self) unless plugin_base.ancestors.include?(self)
+      end
     end
 
-    Base.include(API) if const_defined?(:Base)
+    API.install!
   end
 end

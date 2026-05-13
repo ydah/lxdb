@@ -92,5 +92,7 @@ module Lxdb
         self.class.plugin_info&.fetch(:name, nil)
       end
     end
+
+    API.install! if const_defined?(:API, false)
   end
 end
