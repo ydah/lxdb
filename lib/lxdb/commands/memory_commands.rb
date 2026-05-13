@@ -3,7 +3,7 @@
 module Lxdb
   module Commands
     class Examine < Base
-      command "examine", aliases: %w[x], description: "Examine memory", category: :memory
+      command "examine", aliases: %w[x hexdump], description: "Examine memory", category: :memory
 
       def execute(args)
         require_stopped!

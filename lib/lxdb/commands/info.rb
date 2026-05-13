@@ -21,7 +21,7 @@ module Lxdb
     end
 
     class Disassemble < Base
-      command "disassemble", aliases: %w[disas dis u], description: "Disassemble", category: :info
+      command "disassemble", aliases: %w[disas dis disasm u], description: "Disassemble", category: :info
 
       def execute(args)
         require_stopped!

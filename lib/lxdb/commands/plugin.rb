@@ -3,7 +3,7 @@
 module Lxdb
   module Commands
     class PluginCommand < Base
-      command "plugin", aliases: ["plugins"], description: "Manage plugins", category: :info
+      command "plugin", aliases: ["plugins"], description: "Manage plugins", category: :plugin
 
       def execute(args)
         subcommand = args.first
