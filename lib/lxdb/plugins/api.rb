@@ -85,5 +85,7 @@ module Lxdb
         session.read_register(architecture.stack_pointer)
       end
     end
+
+    Base.include(API) if const_defined?(:Base)
   end
 end
