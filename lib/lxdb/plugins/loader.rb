@@ -72,7 +72,7 @@ module Lxdb
         plugin = @loaded_plugins.find { |p| normalize_plugin_name(p.class.plugin_info[:name]) == plugin_name }
         return false unless plugin
 
-        teardown_plugin(plugin)
+        teardown_plugin(plugin, "unloading")
         Commands::Registry.unregister_owner(plugin_name)
         @loaded_plugins.delete(plugin)
         true
@@ -80,7 +80,7 @@ module Lxdb
 
       def reload_all
         @loaded_plugins.each do |plugin|
-          teardown_plugin(plugin)
+          teardown_plugin(plugin, "reloading")
           Commands::Registry.unregister_owner(plugin.class.plugin_info[:name])
         end
         @loaded_plugins.clear
@@ -90,21 +90,25 @@ module Lxdb
 
       private
 
-      def teardown_plugin(plugin)
+      def teardown_plugin(plugin, action)
         plugin.teardown if plugin.respond_to?(:teardown)
-      rescue StandardError
-        nil
+      rescue StandardError => e
+        warn "Plugin teardown failed while #{action} #{plugin_label(plugin)}: #{e.class}: #{e.message}"
       end
 
       def normalize_plugin_name(name)
         name.to_s
       end
 
+      def plugin_label(plugin)
+        info = plugin.class.respond_to?(:plugin_info) ? plugin.class.plugin_info : nil
+        name = info&.fetch(:name, nil)
+        normalize_plugin_name(name || plugin.class.name || "unknown plugin")
+      end
+
       def cleanup_failed_load(plugin_classes, initialized_plugins, loaded_plugins)
         initialized_plugins.each do |plugin|
-          plugin.teardown if plugin.respond_to?(:teardown)
-        rescue StandardError
-          nil
+          teardown_plugin(plugin, "rolling back failed load for")
         end
 
         loaded_plugins.each do |plugin|
