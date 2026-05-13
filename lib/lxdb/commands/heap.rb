@@ -74,9 +74,19 @@ module Lxdb
 
         first = args[0].to_s
 
+        if (arena_match = first.match(/\Aarena:(\d+)\z/i))
+          arena = sanitize_arena_reference(arena_match[1])
+          return [arena, args[1] ? parse_count(args[1]) : 20]
+        end
+
         if first.match?(/\A\d+\z/)
           count = parse_count(first)
-          return [nil, count] if args[1].nil?
+          if args[1]
+            raise CommandError,
+                  "Ambiguous heap chunks arguments: use 'arena:#{first}' for an arena index"
+          end
+
+          return [nil, count]
         end
 
         if arena_reference?(first)
