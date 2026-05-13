@@ -41,6 +41,23 @@ module Lxdb
           result
         end
 
+        def chunks_for_arena(arena, count: 100)
+          start = heap_base
+          return [] unless start
+
+          chunks = chunks(start_addr: start, count: count)
+          return chunks if arena.nil? || arena == :all || arena == :main
+          return chunks.select(&:non_main_arena?) if arena == :non_main
+
+          chunks.select do |chunk|
+            if arena == main_arena
+              !chunk.non_main_arena?
+            else
+              chunk.non_main_arena?
+            end
+          end
+        end
+
         def find_main_arena
           # Try to find main_arena symbol
           result = @session.execute_command("image lookup -s main_arena")
@@ -85,51 +102,109 @@ module Lxdb
         end
 
         def fastbins
-          return {} unless main_arena
-
-          main_arena.all_fastbin_chunks
+          fastbins_for_arena(main_arena)
         end
 
         def unsorted_bin
-          return [] unless main_arena
-
-          main_arena.unsorted_bin_chunks
+          unsorted_bin_for_arena(main_arena)
         end
 
         def smallbins
-          return {} unless main_arena
-
-          result = {}
-          (2...Constants::NSMALLBINS).each do |i|
-            chunks = main_arena.smallbin_chunks(i)
-            result[i] = chunks unless chunks.empty?
-          end
-          result
+          smallbins_for_arena(main_arena)
         end
 
         def largebins
-          return {} unless main_arena
-
-          result = {}
-          (0...(Constants::NBINS - Constants::NSMALLBINS)).each do |i|
-            chunks = main_arena.largebin_chunks(i)
-            result[i] = chunks unless chunks.empty?
-          end
-          result
+          largebins_for_arena(main_arena)
         end
 
         def tcache_bins
-          return {} unless tcache
-
-          tcache.all_tcache_chunks
+          tcache_bins_for_arena(tcache)
         end
 
         def top_chunk
           main_arena&.top_chunk
         end
 
+        def fastbins_for_arena(arena)
+          return {} unless arena
+
+          arena.all_fastbin_chunks
+        end
+
+        def unsorted_bin_for_arena(arena)
+          return [] unless arena
+
+          arena.unsorted_bin_chunks
+        end
+
+        def smallbins_for_arena(arena)
+          return {} unless arena
+
+          result = {}
+          (2...Constants::NSMALLBINS).each do |i|
+            chunks = arena.smallbin_chunks(i)
+            result[i] = chunks unless chunks.empty?
+          end
+          result
+        end
+
+        def largebins_for_arena(arena)
+          return {} unless arena
+
+          result = {}
+          (0...(Constants::NBINS - Constants::NSMALLBINS)).each do |i|
+            chunks = arena.largebin_chunks(i)
+            result[i] = chunks unless chunks.empty?
+          end
+          result
+        end
+
+        def tcache_bins_for_arena(target_tcache)
+          return {} unless target_tcache
+
+          target_tcache.all_tcache_chunks
+        end
+
         def arenas
           @arenas ||= collect_arenas
+        end
+
+        def arena_by_reference(reference)
+          return main_arena if reference.nil? || reference == :main
+          return :all if reference == :all
+          return :non_main if reference == :non_main
+
+          arena_list = arenas
+          return nil if arena_list.empty?
+
+          if reference.is_a?(Integer)
+            if reference >= 0 && reference < arena_list.size
+              return arena_list[reference]
+            end
+          elsif reference.is_a?(String)
+            if reference.start_with?("arena=")
+              reference = reference.sub("arena=", "")
+            end
+
+            if reference.match?(/\A\d+\z/)
+              index = reference.to_i
+              return arena_list[index] if index >= 0 && index < arena_list.size
+            end
+
+            return main_arena if reference.match?(/\Amain\b|\Amain_arena\b/i)
+            return :non_main if reference.match?(/\Anon-?main\b/i)
+
+            if reference.start_with?("0x") || reference.match?(/\A[0-9a-f]+\z/i)
+              begin
+                address = reference.to_i(16)
+              rescue StandardError
+                nil
+              end
+              return arena_list.find { |arena| arena.address == address }
+            end
+          end
+
+          nil
         end
 
         private

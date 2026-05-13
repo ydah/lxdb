@@ -9,16 +9,18 @@ module Lxdb
         require_stopped!
 
         allocator = allocator()
-        count = (args.first || 20).to_i
-
-        chunks = allocator.chunks(count: count)
+        arena_ref, count = parse_chunks_args(args)
+        arena = allocator.arena_by_reference(arena_ref)
+        chunks = allocator.chunks_for_arena(arena, count: count)
 
         if chunks.empty?
           output(c("No heap chunks found", :warning))
+          output("Try: 'heap arenas' to inspect available arenas") unless allocator.arenas.empty?
           return
         end
 
         output(c("Heap Chunks:", :banner))
+        output("  Arena: #{arena_label(arena)}")
         output("")
 
         chunks.each do |chunk|
@@ -33,6 +35,61 @@ module Lxdb
 
       def allocator
         @allocator ||= Heap::Glibc::Ptmalloc.new(session)
+      end
+
+      def parse_chunks_args(args)
+        return [nil, 20] if args.empty?
+
+        first = args[0].to_s
+
+        if first.match?(/\A\d+\z/)
+          count = parse_count(first)
+          return [nil, count] if args[1].nil?
+        end
+
+        if arena_reference?(first)
+          if args[1]
+            [sanitize_arena_reference(first), parse_count(args[1])]
+          else
+            [sanitize_arena_reference(first), 20]
+          end
+        else
+          count = parse_count(first)
+          [nil, count.positive? ? count : 20]
+        end
+      end
+
+      def arena_reference?(token)
+        return false unless token
+
+        normalized = token.to_s.downcase
+        return true if normalized.start_with?("arena=")
+        return true if %w[main non-main nonmain all].include?(normalized)
+        return true if normalized.start_with?("0x")
+        return true if token.match?(/\A\d+\z/)
+
+        false
+      end
+
+      def sanitize_arena_reference(token)
+        token.start_with?("arena=") ? token.sub(/^arena=/, "") : token
+      end
+
+      def parse_count(value)
+        count = value.to_i
+        count.positive? ? count : 20
+      end
+
+      def arena_label(arena)
+        if arena == :all
+          "all"
+        elsif arena == :non_main
+          "non-main"
+        elsif arena == :main || arena.nil?
+          "main"
+        else
+          "##{allocator.arenas.index(arena)} (0x#{format("%x", arena.address)})"
+        end
       end
 
       def format_chunk(chunk)
@@ -62,21 +119,24 @@ module Lxdb
         require_stopped!
 
         allocator = allocator()
-        bin_type = args.first&.downcase
+        bin_type, arena_ref = parse_bins_args(args)
+        arena = allocator.arena_by_reference(arena_ref)
+
+        return output(c("Unknown arena reference: #{arena_ref}", :error)) if arena_ref && arena.nil?
 
         case bin_type
         when "fast", "fastbins"
-          show_fastbins(allocator)
+          show_fastbins(allocator, arena)
         when "tcache"
-          show_tcache(allocator)
+          show_tcache(allocator, arena)
         when "unsorted"
-          show_unsorted(allocator)
+          show_unsorted(allocator, arena)
         when "small", "smallbins"
-          show_smallbins(allocator)
+          show_smallbins(allocator, arena)
         when "large", "largebins"
-          show_largebins(allocator)
+          show_largebins(allocator, arena)
         else
-          show_all_bins(allocator)
+          show_all_bins(allocator, arena)
         end
       end
 
@@ -86,18 +146,22 @@ module Lxdb
         Heap::Glibc::Ptmalloc.new(session)
       end
 
-      def show_all_bins(allocator)
-        show_tcache(allocator)
+      def show_all_bins(allocator, arena)
+        show_tcache(allocator, arena)
         output("")
-        show_fastbins(allocator)
+        show_fastbins(allocator, arena)
         output("")
-        show_unsorted(allocator)
+        show_unsorted(allocator, arena)
+        output("")
+        show_smallbins(allocator, arena)
+        output("")
+        show_largebins(allocator, arena)
       end
 
-      def show_fastbins(allocator)
+      def show_fastbins(allocator, arena)
         output(c("Fastbins:", :banner))
 
-        bins = allocator.fastbins
+        bins = allocator.fastbins_for_arena(arena_for_bins(allocator, arena))
         if bins.empty?
           output("  (empty)")
           return
@@ -109,10 +173,10 @@ module Lxdb
         end
       end
 
-      def show_tcache(allocator)
+      def show_tcache(allocator, arena)
         output(c("Tcache:", :banner))
 
-        bins = allocator.tcache_bins
+        bins = allocator.tcache_bins_for_arena(tcache_for_arena(allocator, arena))
         if bins.empty?
           output("  (empty or not available)")
           return
@@ -124,10 +188,10 @@ module Lxdb
         end
       end
 
-      def show_unsorted(allocator)
+      def show_unsorted(allocator, arena)
         output(c("Unsorted Bin:", :banner))
 
-        chunks = allocator.unsorted_bin
+        chunks = allocator.unsorted_bin_for_arena(arena_for_bins(allocator, arena))
         if chunks.empty?
           output("  (empty)")
           return
@@ -136,10 +200,10 @@ module Lxdb
         output("  #{format_chain(chunks)}")
       end
 
-      def show_smallbins(allocator)
+      def show_smallbins(allocator, arena)
         output(c("Small Bins:", :banner))
 
-        bins = allocator.smallbins
+        bins = allocator.smallbins_for_arena(arena_for_bins(allocator, arena))
         if bins.empty?
           output("  (empty)")
           return
@@ -150,10 +214,10 @@ module Lxdb
         end
       end
 
-      def show_largebins(allocator)
+      def show_largebins(allocator, arena)
         output(c("Large Bins:", :banner))
 
-        bins = allocator.largebins
+        bins = allocator.largebins_for_arena(arena_for_bins(allocator, arena))
         if bins.empty?
           output("  (empty)")
           return
@@ -176,6 +240,49 @@ module Lxdb
 
       def tcache_size(index)
         fastbin_size(index)
+      end
+
+      def parse_bins_args(args)
+        first = args[0]&.downcase
+        second = args[1]
+
+        if first == "arena"
+          return ["all", second]
+        end
+
+        if first && first.start_with?("arena=")
+          return ["all", first]
+        end
+
+        if first && bin_type?(first)
+          arena_ref = if second && arena_reference?(second)
+                        sanitize_arena_reference(second)
+                      end
+          return [first, arena_ref]
+        end
+
+        if first && arena_reference?(first)
+          return ["all", sanitize_arena_reference(first)]
+        end
+
+        ["all", nil]
+      end
+
+      def bin_type?(token)
+        %w[fast fastbins tcache unsorted small smallbins large largebins all].include?(token)
+      end
+
+      def arena_for_bins(allocator, arena)
+        resolved = arena
+        return allocator.main_arena if resolved.nil? || resolved == :main
+        return allocator.main_arena if resolved == :all
+        return nil if resolved == :non_main
+        resolved
+      end
+
+      def tcache_for_arena(allocator, arena)
+        return nil if arena == :non_main
+        allocator.tcache
       end
     end
 
