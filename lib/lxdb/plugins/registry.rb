@@ -21,7 +21,17 @@ module Lxdb
         end
 
         def find(name)
-          @plugins[name]
+          return nil if name.nil?
+
+          @plugins[name] || @plugins[name.to_s] || @plugins[name.to_sym]
+        end
+
+        def unregister(name)
+          return if name.nil?
+
+          @plugins.delete(name)
+          @plugins.delete(name.to_s)
+          @plugins.delete(name.to_sym)
         end
 
         def all

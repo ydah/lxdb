@@ -24,8 +24,11 @@ module Lxdb
       end
 
       def load_plugin(path)
-        return unless File.exist?(path)
+        return false unless File.exist?(path)
 
+        loaded_from_file = []
+        initialized_from_file = []
+        new_plugins = []
         begin
           path = File.expand_path(path)
 
@@ -36,16 +39,20 @@ module Lxdb
           new_plugins = Registry.pending_plugins
           new_plugins.each do |plugin_class|
             plugin = plugin_class.new(@session)
+            initialized_from_file << plugin
             plugin.setup
             @loaded_plugins << plugin
+            loaded_from_file << plugin
             puts "Loaded plugin: #{plugin_class.plugin_info[:name]}" if @session.config.debug
           end
-          Registry.clear_pending
 
           true
         rescue StandardError => e
+          cleanup_failed_load(new_plugins, initialized_from_file, loaded_from_file)
           warn "Failed to load plugin #{path}: #{e.message}"
           false
+        ensure
+          Registry.clear_pending
         end
       end
 
@@ -85,6 +92,24 @@ module Lxdb
 
       def normalize_plugin_name(name)
         name.to_s
+      end
+
+      def cleanup_failed_load(plugin_classes, initialized_plugins, loaded_plugins)
+        initialized_plugins.each do |plugin|
+          plugin.teardown if plugin.respond_to?(:teardown)
+        rescue StandardError
+          nil
+        end
+
+        loaded_plugins.each do |plugin|
+          @loaded_plugins.delete(plugin)
+        end
+
+        plugin_classes.each do |plugin_class|
+          plugin_name = normalize_plugin_name(plugin_class.plugin_info[:name])
+          Commands::Registry.unregister_owner(plugin_name)
+          Registry.unregister(plugin_name)
+        end
       end
     end
   end
