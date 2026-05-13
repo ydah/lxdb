@@ -72,7 +72,7 @@ module Lxdb
         plugin = @loaded_plugins.find { |p| normalize_plugin_name(p.class.plugin_info[:name]) == plugin_name }
         return false unless plugin
 
-        plugin.teardown if plugin.respond_to?(:teardown)
+        teardown_plugin(plugin)
         Commands::Registry.unregister_owner(plugin_name)
         @loaded_plugins.delete(plugin)
         true
@@ -80,7 +80,7 @@ module Lxdb
 
       def reload_all
         @loaded_plugins.each do |plugin|
-          plugin.teardown if plugin.respond_to?(:teardown)
+          teardown_plugin(plugin)
           Commands::Registry.unregister_owner(plugin.class.plugin_info[:name])
         end
         @loaded_plugins.clear
@@ -89,6 +89,12 @@ module Lxdb
       end
 
       private
+
+      def teardown_plugin(plugin)
+        plugin.teardown if plugin.respond_to?(:teardown)
+      rescue StandardError
+        nil
+      end
 
       def normalize_plugin_name(name)
         name.to_s
