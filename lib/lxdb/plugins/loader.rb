@@ -61,11 +61,12 @@ module Lxdb
       end
 
       def unload_plugin(name)
-        plugin = @loaded_plugins.find { |p| p.class.plugin_info[:name] == name }
+        plugin_name = normalize_plugin_name(name)
+        plugin = @loaded_plugins.find { |p| normalize_plugin_name(p.class.plugin_info[:name]) == plugin_name }
         return false unless plugin
 
         plugin.teardown if plugin.respond_to?(:teardown)
-        Commands::Registry.unregister_owner(name)
+        Commands::Registry.unregister_owner(plugin_name)
         @loaded_plugins.delete(plugin)
         true
       end
@@ -78,6 +79,12 @@ module Lxdb
         @loaded_plugins.clear
         Registry.clear
         load_all
+      end
+
+      private
+
+      def normalize_plugin_name(name)
+        name.to_s
       end
     end
   end
