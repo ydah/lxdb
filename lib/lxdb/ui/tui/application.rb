@@ -308,6 +308,7 @@ module Lxdb
             parts = cmd.strip.split(/\s+/)
             command_name = parts.first
             args = parts[1..] || []
+            command_name, args = normalize_x_command(command_name, args)
 
             # 特別なTUIコマンド
             case command_name
@@ -461,6 +462,25 @@ module Lxdb
           else
             str.to_i(16)
           end
+        end
+
+        def normalize_x_command(command_name, args)
+          return [command_name, args] unless command_name&.start_with?("x/")
+
+          match = command_name.match(/\Ax\/(\d+)?(?:[a-zA-Z]+)?\z/)
+          if match
+            count = match[1]&.to_i
+            if args.empty?
+              return ["examine", []]
+            end
+
+            normalized = [args[0]]
+            normalized << count.to_s if count && count.positive?
+            normalized += args[1..] if args.length > 1
+            return ["examine", normalized]
+          end
+
+          ["examine", args]
         end
 
         def show_help

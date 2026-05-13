@@ -99,6 +99,7 @@ module Lxdb
           parts = parse_line(line)
           command_name = parts.first
           args = parts[1..] || []
+          command_name, args = normalize_x_command(command_name, args)
 
           # Find command in registry
           command_class = Commands::Registry.find(command_name)
@@ -142,6 +143,25 @@ module Lxdb
 
           tokens << current unless current.empty?
           tokens
+        end
+
+        def normalize_x_command(command_name, args)
+          return [command_name, args] unless command_name&.start_with?("x/")
+
+          match = command_name.match(/\Ax\/(\d+)?(?:[a-zA-Z]+)?\z/)
+          if match
+            count = match[1]&.to_i
+            if args.empty?
+              return ["examine", []]
+            end
+
+            normalized = [args[0]]
+            normalized << count.to_s if count && count.positive?
+            normalized += args[1..] if args.length > 1
+            return ["examine", normalized]
+          end
+
+          ["examine", args]
         end
 
         def complete(input)
