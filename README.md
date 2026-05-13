@@ -160,7 +160,7 @@ session.terminate
 | Command | Description |
 |---------|-------------|
 | `checksec` | Check binary security features |
-| `rop [--depth N]` | Search for ROP gadgets |
+| `rop [pattern] [--depth N] [--max N]` | Search for ROP gadgets |
 | `pattern create <len>` | Create cyclic pattern |
 | `pattern offset <value>` | Find pattern offset |
 | `vmmap` | Show memory mappings |
