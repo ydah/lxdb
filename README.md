@@ -149,10 +149,10 @@ session.terminate
 
 | Command | Description |
 |---------|-------------|
-| `heap` | Heap overview |
-| `heap chunks [arena]` | List heap chunks |
-| `heap bins [arena]` | Show bin contents |
-| `heap tcache` | Show tcache entries |
+| `heap [count]` / `heap chunks [arena] [count]` | List heap chunks |
+| `heap bins [type] [arena]` | Show bin contents |
+| `heap tcache [arena]` | Show tcache entries |
+| `heap arena [arena]` | Show arena details |
 | `heap arenas` | List all arenas |
 
 ### Exploit Development

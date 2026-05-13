@@ -6,6 +6,9 @@ module Lxdb
       command "heap", aliases: ["chunks"], description: "Show heap chunks", category: :heap
 
       def execute(args)
+        args = route_subcommand(args)
+        return unless args
+
         require_stopped!
 
         allocator = allocator()
@@ -35,6 +38,35 @@ module Lxdb
 
       def allocator
         @allocator ||= Heap::Glibc::Ptmalloc.new(session)
+      end
+
+      def route_subcommand(args)
+        return args if args.empty?
+
+        subcommand = args.first.to_s.downcase
+        rest = args[1..] || []
+
+        case subcommand
+        when "chunks", "chunk"
+          rest
+        when "bins", "bin"
+          HeapBins.new(session).execute(rest)
+          nil
+        when "tcache"
+          HeapTcache.new(session).execute(rest)
+          nil
+        when "arena", "main_arena"
+          HeapArena.new(session).execute(rest)
+          nil
+        when "arenas", "heap_arenas"
+          HeapArenas.new(session).execute(rest)
+          nil
+        when "top", "top_chunk", "heaptop"
+          HeapTop.new(session).execute(rest)
+          nil
+        else
+          args
+        end
       end
 
       def parse_chunks_args(args)
