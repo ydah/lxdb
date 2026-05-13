@@ -320,14 +320,15 @@ module Lxdb
       def parse_pattern(raw)
         return "".b if raw.nil?
 
-        hex_match = raw.match(/^0x([0-9a-fA-F]+)$/)
+        source = raw.to_s
+        hex_match = source.match(/^0x([0-9a-fA-F]+)$/)
         if hex_match
           hex_value = hex_match[1]
           hex_value = "0#{hex_value}" if hex_value.length.odd?
-          return [hex_value].pack("H*")
+          return [hex_value].pack("H*").b
         end
 
-        raw.gsub(/\\x([0-9a-fA-F]{2})/) { [$1].pack("H*") }
+        source.b.gsub(/\\x([0-9a-fA-F]{2})/) { [Regexp.last_match(1)].pack("H*") }.b
       end
 
       def resolve_search_regions(filter)
@@ -413,7 +414,7 @@ module Lxdb
           result = session.memory&.read_safe(region[:start] + cursor, read_size)
           break unless result&.success?
 
-          chunk = result.data
+          chunk = result.data&.b
           break if chunk.nil? || chunk.empty?
 
           haystack = carry + chunk
