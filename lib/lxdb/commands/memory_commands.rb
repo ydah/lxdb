@@ -292,7 +292,7 @@ module Lxdb
 
         matches = []
         regions.each do |region_info|
-          region_matches = search_region(region_info, bytes)
+          region_matches = search_region(region_info, bytes, max_results - matches.size)
           matches.concat(region_matches)
           break if matches.size >= max_results
         end
@@ -429,7 +429,7 @@ module Lxdb
         regions
       end
 
-      def search_region(region, needle)
+      def search_region(region, needle, max_results = 200)
         return [] unless region[:readable]
         return [] if region[:size].nil? || region[:size] <= 0
 
@@ -439,7 +439,7 @@ module Lxdb
         carry = +""
         cursor = 0
 
-        while cursor < region[:size]
+        while cursor < region[:size] && matches.size < max_results
           remaining = region[:size] - cursor
           read_size = [chunk_size, remaining].min
           break if read_size <= 0
@@ -455,6 +455,8 @@ module Lxdb
           while (pos = haystack.index(needle, search_pos))
             absolute = region[:start] + cursor + pos - carry.bytesize
             matches << { address: absolute, region: region }
+            break if matches.size >= max_results
+
             search_pos = pos + 1
           end
 
