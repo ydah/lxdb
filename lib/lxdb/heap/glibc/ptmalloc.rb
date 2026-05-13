@@ -126,34 +126,40 @@ module Lxdb
         end
 
         def fastbins_for_arena(arena)
-          return {} unless arena
-
-          arena.all_fastbin_chunks
+          return {} if arena.nil? || !main_arena
+          return main_arena.all_fastbin_chunks if arena == :main
+          return collect_all_fastbins_for_arenas(arenas_from_reference(arena))
         end
 
         def unsorted_bin_for_arena(arena)
-          return [] unless arena
-
-          arena.unsorted_bin_chunks
+          return [] if arena.nil? || !main_arena
+          return main_arena.unsorted_bin_chunks if arena == :main
+          return collect_all_chunks_for_arenas(arenas_from_reference(arena), :unsorted_bin_chunks)
         end
 
         def smallbins_for_arena(arena)
-          return {} unless arena
+          return {} if arena.nil? || !main_arena
+          return collect_all_bins_for_arenas(arenas_from_reference(arena), 2...Constants::NSMALLBINS) do |arena_state, index|
+            arena_state.smallbin_chunks(index)
+          end if arena != :main
 
           result = {}
           (2...Constants::NSMALLBINS).each do |i|
-            chunks = arena.smallbin_chunks(i)
+            chunks = main_arena.smallbin_chunks(i)
             result[i] = chunks unless chunks.empty?
           end
           result
         end
 
         def largebins_for_arena(arena)
-          return {} unless arena
+          return {} if arena.nil? || !main_arena
+          return collect_all_bins_for_arenas(arenas_from_reference(arena), 0...(Constants::NBINS - Constants::NSMALLBINS)) do |arena_state, index|
+            arena_state.largebin_chunks(index)
+          end if arena != :main
 
           result = {}
           (0...(Constants::NBINS - Constants::NSMALLBINS)).each do |i|
-            chunks = arena.largebin_chunks(i)
+            chunks = main_arena.largebin_chunks(i)
             result[i] = chunks unless chunks.empty?
           end
           result
@@ -193,14 +199,17 @@ module Lxdb
 
             return main_arena if reference.match?(/\Amain\b|\Amain_arena\b/i)
             return :non_main if reference.match?(/\Anon-?main\b/i)
+            return :all if reference.match?(/\Aall\b/i)
 
             if reference.start_with?("0x") || reference.match?(/\A[0-9a-f]+\z/i)
               begin
-                address = reference.to_i(16)
+                address = Integer(reference)
+              rescue StandardError
+                address = Integer(reference, 16)
               rescue StandardError
                 nil
               end
-              return arena_list.find { |arena| arena.address == address }
+              return arena_list.find { |arena| arena.address == address } if address
             end
           end
 
@@ -208,6 +217,59 @@ module Lxdb
         end
 
         private
+
+        def arenas_from_reference(arena)
+          return [] unless arena && main_arena
+
+          return [main_arena] if arena == :main
+
+          return [] unless %i[all non_main].include?(arena) || arena.is_a?(MallocState)
+
+          case arena
+          when :all
+            arenas
+          when :non_main
+            arenas.reject { |item| item == main_arena }
+          else
+            [arena]
+          end
+        end
+
+        def collect_all_fastbins_for_arenas(arena_states)
+          result = {}
+          arena_states.each do |arena_state|
+            arena_state.all_fastbin_chunks.each do |index, chunks|
+              result[index] ||= []
+              result[index].concat(chunks)
+            end
+          end
+
+          result
+        end
+
+        def collect_all_bins_for_arenas(arena_states, index_range, &block)
+          result = {}
+          arena_states.each do |arena_state|
+            index_range.each do |index|
+              chunks = block.call(arena_state, index)
+              next if chunks.empty?
+
+              result[index] ||= []
+              result[index].concat(chunks)
+            end
+          end
+
+          result
+        end
+
+        def collect_all_chunks_for_arenas(arena_states, method_name)
+          chunks = []
+          arena_states.each do |arena_state|
+            chunks.concat(arena_state.public_send(method_name))
+          end
+
+          chunks
+        end
 
         def collect_arenas
           return [] unless main_arena

@@ -72,10 +72,13 @@ module Lxdb
       end
 
       def sanitize_arena_reference(token)
-        token.start_with?("arena=") ? token.sub(/^arena=/, "") : token
+        token = token.to_s
+        token.start_with?("arena=") ? token.sub(/^arena=/i, "") : token
       end
 
       def parse_count(value)
+        return 20 unless value.to_s.match?(/\A\d+\z/)
+
         count = value.to_i
         count.positive? ? count : 20
       end
@@ -274,8 +277,8 @@ module Lxdb
 
       def arena_for_bins(allocator, arena)
         resolved = arena
-        return allocator.main_arena if resolved.nil? || resolved == :main
-        return allocator.main_arena if resolved == :all
+        return nil if resolved.nil? || resolved == :main
+        return :all if resolved == :all
         return nil if resolved == :non_main
         resolved
       end
