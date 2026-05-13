@@ -15,8 +15,19 @@ module Lxdb
         end
 
         # Register a command dynamically
-        def register_command(name, &block)
-          Commands::Registry.register_dynamic(name, block)
+        def register_command(name, aliases: [], description: "", category: :plugin, &block)
+          Commands::Registry.register_dynamic(
+            name,
+            block,
+            aliases: aliases,
+            description: description,
+            category: category,
+            owner: plugin_name
+          )
+        end
+
+        def plugin_name
+          respond_to?(:plugin_info) ? plugin_info&.fetch(:name, nil) : nil
         end
       end
 

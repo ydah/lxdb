@@ -65,6 +65,7 @@ module Lxdb
         return false unless plugin
 
         plugin.teardown if plugin.respond_to?(:teardown)
+        Commands::Registry.unregister_owner(name)
         @loaded_plugins.delete(plugin)
         true
       end
@@ -72,6 +73,7 @@ module Lxdb
       def reload_all
         @loaded_plugins.each do |plugin|
           plugin.teardown if plugin.respond_to?(:teardown)
+          Commands::Registry.unregister_owner(plugin.class.plugin_info[:name])
         end
         @loaded_plugins.clear
         Registry.clear

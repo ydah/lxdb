@@ -44,7 +44,7 @@ module Lxdb
           end
         end
 
-        Commands::Registry.register(command_class)
+        Commands::Registry.register(command_class, owner: plugin_name)
       end
 
       # Helper to add a context section
@@ -86,6 +86,10 @@ module Lxdb
 
       def colorize(text, style)
         Color::Theme.current.colorize(text, style)
+      end
+
+      def plugin_name
+        self.class.plugin_info&.fetch(:name, nil)
       end
     end
   end
