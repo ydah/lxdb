@@ -70,6 +70,8 @@ module Lxdb
           show_threads
         when "frame", "f"
           show_frame
+        when "mappings", "map", "maps", "vmmap"
+          show_mappings
         when "target"
           show_target
         else
@@ -125,12 +127,22 @@ module Lxdb
         output("  Architecture: #{session.architecture.name}")
       end
 
+      def show_mappings
+        result = session.execute_command("memory region --all")
+        if result.to_s.empty?
+          output(c("No mapping information available", :warning))
+        else
+          output(result)
+        end
+      end
+
       def show_help
         output(c("info subcommands:", :info))
         output("  info registers  - Show registers")
         output("  info breakpoints - List breakpoints")
         output("  info threads    - List threads")
         output("  info frame      - Show current frame")
+        output("  info mappings   - Show memory mappings")
         output("  info target     - Show target info")
       end
     end
@@ -174,7 +186,7 @@ module Lxdb
         output("")
 
         by_category = Registry.by_category
-        category_order = %i[navigation breakpoints memory info]
+        category_order = %i[navigation breakpoints memory info heap exploit plugin]
 
         category_order.each do |cat|
           commands = by_category[cat]
