@@ -188,8 +188,8 @@ module Lxdb
               return arena_list[reference]
             end
           elsif reference.is_a?(String)
-            if reference.start_with?("arena=")
-              reference = reference.sub("arena=", "")
+            if reference.match?(/\Aarena=/i)
+              reference = reference.sub(/\Aarena=/i, "")
             end
 
             if reference.match?(/\A\d+\z/)

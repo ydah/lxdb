@@ -73,7 +73,7 @@ module Lxdb
 
       def sanitize_arena_reference(token)
         token = token.to_s
-        token.start_with?("arena=") ? token.sub(/^arena=/i, "") : token
+        token.match?(/\Aarena=/i) ? token.sub(/^arena=/i, "") : token
       end
 
       def parse_count(value)
@@ -320,21 +320,50 @@ module Lxdb
     class HeapArena < Base
       command "arena", aliases: ["main_arena"], description: "Show main arena info", category: :heap
 
-      def execute(_args)
+      def execute(args)
         require_stopped!
 
         allocator = Heap::Glibc::Ptmalloc.new(session)
-        arena = allocator.main_arena
+        return output(c("Could not find main_arena", :warning)) unless allocator.main_arena
 
-        if arena
-          output(c("Main Arena:", :banner))
-          output("  Address:     #{c(format_address(arena.address), :address)}")
-          output("  Top:         #{c(format_address(arena.top), :address)}")
-          output("  System mem:  #{c(format("0x%x", arena.system_mem), :value)}")
-          output("  Flags:       #{c(format("0x%x", arena.flags), :value)}")
+        arg = args&.first
+        arena = arg ? allocator.arena_by_reference(arg) : allocator.main_arena
+
+        if arena == :all
+          output(c("All Arenas:", :banner))
+          show_arenas(allocator.arenas)
+        elsif arena == :non_main
+          non_main = allocator.arenas.reject { |item| item == allocator.main_arena }
+          if non_main.empty?
+            output(c("No non-main arenas found", :warning))
+          else
+            output(c("Non-Main Arenas:", :banner))
+            show_arenas(non_main)
+          end
+        elsif arena.nil?
+          output(c("Unknown arena reference: #{arg}", :error))
         else
-          output(c("Could not find main_arena", :warning))
-          output("Try: 'p &main_arena' in LLDB to find the address")
+          output(c("Arena:", :banner))
+          show_arena(arena)
+        end
+      end
+
+      private
+
+      def show_arena(arena)
+        output("  Address:        #{c(format_address(arena.address), :address)}")
+        output("  Top:            #{c(format_address(arena.top), :address)}")
+        output("  Last Remainder: #{c(format_address(arena.last_remainder), :address)}")
+        output("  System memory:  #{c(format("0x%x", arena.system_mem), :value)}")
+        output("  Flags:          #{c(format("0x%x", arena.flags), :value)}")
+        output("  Next arena:     #{c(format_address(arena.next_arena), :address)}")
+      end
+
+      def show_arenas(arenas)
+        arenas.each_with_index do |arena, index|
+          output(c("##{index}", :frame_number))
+          show_arena(arena)
+          output("")
         end
       end
     end
