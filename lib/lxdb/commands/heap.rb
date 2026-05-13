@@ -277,7 +277,7 @@ module Lxdb
 
       def arena_for_bins(allocator, arena)
         resolved = arena
-        return nil if resolved.nil? || resolved == :main
+        return allocator.main_arena if resolved.nil? || resolved == :main
         return :all if resolved == :all
         return nil if resolved == :non_main
         resolved
@@ -286,6 +286,15 @@ module Lxdb
       def tcache_for_arena(allocator, arena)
         return nil if arena == :non_main
         allocator.tcache
+      end
+    end
+
+    class HeapTcache < Base
+      command "tcache", aliases: ["heap_tcache"], description: "Show tcache entries", category: :heap
+
+      def execute(args)
+        require_stopped!
+        HeapBins.new(session).execute(["tcache"] + args)
       end
     end
 
