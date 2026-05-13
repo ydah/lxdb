@@ -219,5 +219,37 @@ module Lxdb
         end
       end
     end
+
+    class HeapArenas < Base
+      command "arenas", aliases: ["heap_arenas"], description: "Show all arena info", category: :heap
+
+      def execute(_args)
+        require_stopped!
+
+        allocator = Heap::Glibc::Ptmalloc.new(session)
+        arenas = allocator.arenas
+
+        if arenas.empty?
+          output(c("No arenas found", :warning))
+          output("Try: 'p &main_arena' in LLDB to verify heap allocator state")
+          return
+        end
+
+        output(c("Heap Arenas:", :banner))
+        output("  Count: #{arenas.size}")
+        output("")
+
+        arenas.each_with_index do |arena, index|
+          output(c("##{index}", :frame_number))
+          output("  Address:        #{c(format_address(arena.address), :address)}")
+          output("  Top:            #{c(format_address(arena.top), :address)}")
+          output("  Last Remainder: #{c(format_address(arena.last_remainder), :address)}")
+          output("  System memory:  #{c(format("0x%x", arena.system_mem), :value)}")
+          output("  Flags:          #{c(format("0x%x", arena.flags), :value)}")
+          output("  Next arena:     #{c(format_address(arena.next_arena), :address)}")
+          output("")
+        end
+      end
+    end
   end
 end

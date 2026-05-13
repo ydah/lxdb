@@ -127,6 +127,38 @@ module Lxdb
         def top_chunk
           main_arena&.top_chunk
         end
+
+        def arenas
+          @arenas ||= collect_arenas
+        end
+
+        private
+
+        def collect_arenas
+          return [] unless main_arena
+
+          result = []
+          seen = {}
+          current = main_arena
+
+          64.times do
+            break if current.nil?
+            break if seen[current.address]
+
+            result << current
+            seen[current.address] = true
+
+            next_addr = current.next_arena
+            break unless next_addr.is_a?(Integer)
+            break if next_addr <= 0
+            break unless session.memory&.valid_pointer?(next_addr)
+            break if next_addr == current.address
+
+            current = MallocState.new(@session, next_addr)
+          end
+
+          result
+        end
       end
     end
   end
