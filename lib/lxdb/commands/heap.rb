@@ -311,7 +311,7 @@ module Lxdb
         resolved = arena
         return allocator.main_arena if resolved.nil? || resolved == :main
         return :all if resolved == :all
-        return nil if resolved == :non_main
+        return :non_main if resolved == :non_main
         resolved
       end
 
