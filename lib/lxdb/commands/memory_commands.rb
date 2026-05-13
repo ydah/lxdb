@@ -281,10 +281,10 @@ module Lxdb
       def execute(args)
         require_stopped!
 
-        pattern, region_filter, max_results = parse_search_args(args)
-        raise CommandError, "Usage: search <pattern|0xhex> [region] [--limit N]" unless pattern
+        pattern, region_filter, options = parse_search_args(args)
+        raise CommandError, search_usage unless pattern
 
-        bytes = parse_pattern(pattern)
+        bytes = parse_pattern(pattern, options[:type], options[:endian])
         raise CommandError, "Search pattern is empty" if bytes.empty?
 
         regions = resolve_search_regions(region_filter)
@@ -292,11 +292,11 @@ module Lxdb
 
         matches = []
         regions.each do |region_info|
-          region_matches = search_region(region_info, bytes, max_results - matches.size)
+          region_matches = search_region(region_info, bytes, options[:max_results] - matches.size)
           matches.concat(region_matches)
-          break if matches.size >= max_results
+          break if matches.size >= options[:max_results]
         end
-        matches = matches.take(max_results)
+        matches = matches.take(options[:max_results])
 
         if matches.empty?
           output(c("No matches found for #{format_pattern_preview(bytes)}", :warning))
@@ -310,14 +310,18 @@ module Lxdb
           output(format_match(match))
         end
         output("")
-        output(c("Showing first #{max_results} matches", :warning)) if matches.size >= max_results
+        output(c("Showing first #{options[:max_results]} matches", :warning)) if matches.size >= options[:max_results]
       end
 
       private
 
+      def search_usage
+        "Usage: search <pattern|0xhex> [region] [--limit N] [--type bytes|string|u8|u16|u32|u64|i8|i16|i32|i64|ptr] [--endian little|big]"
+      end
+
       def parse_search_args(args)
         positional = []
-        max_results = 200
+        options = { max_results: 200, type: :bytes, endian: :little }
         tokens = args.dup
 
         until tokens.empty?
@@ -325,19 +329,31 @@ module Lxdb
 
           case token
           when "--limit", "--max-results"
-            max_results = parse_max_results(tokens.shift)
+            options[:max_results] = parse_max_results(tokens.shift)
           when /\A--(?:limit|max-results)=(.+)\z/
-            max_results = parse_max_results(Regexp.last_match(1))
+            options[:max_results] = parse_max_results(Regexp.last_match(1))
           when /\A(?:limit|max|results)=(.+)\z/i
-            max_results = parse_max_results(Regexp.last_match(1))
+            options[:max_results] = parse_max_results(Regexp.last_match(1))
+          when "--type", "-t"
+            options[:type] = parse_pattern_type(tokens.shift)
+          when /\A--type=(.+)\z/i
+            options[:type] = parse_pattern_type(Regexp.last_match(1))
+          when /\Atype=(.+)\z/i
+            options[:type] = parse_pattern_type(Regexp.last_match(1))
+          when "--endian", "-e"
+            options[:endian] = parse_endian(tokens.shift)
+          when /\A--endian=(.+)\z/i
+            options[:endian] = parse_endian(Regexp.last_match(1))
+          when /\Aendian=(.+)\z/i
+            options[:endian] = parse_endian(Regexp.last_match(1))
           else
             positional << token
           end
         end
 
-        raise CommandError, "Usage: search <pattern|0xhex> [region] [--limit N]" if positional.size > 2
+        raise CommandError, search_usage if positional.size > 2
 
-        [positional[0], positional[1], max_results]
+        [positional[0], positional[1], options]
       end
 
       def parse_max_results(raw)
@@ -350,10 +366,41 @@ module Lxdb
         parsed
       end
 
-      def parse_pattern(raw)
+      def parse_pattern_type(raw)
+        normalized = raw.to_s.downcase.tr("_-", "")
+        case normalized
+        when "bytes", "byte", "raw", "hex"
+          :bytes
+        when "string", "str", "text"
+          :string
+        when "ptr", "pointer", "addr", "address"
+          :ptr
+        when "u8", "uint8", "i8", "int8", "u16", "uint16", "i16", "int16",
+             "u32", "uint32", "i32", "int32", "u64", "uint64", "i64", "int64"
+          normalized.sub("uint", "u").sub("int", "i").to_sym
+        else
+          raise CommandError, "Unsupported search type: #{raw}"
+        end
+      end
+
+      def parse_endian(raw)
+        case raw.to_s.downcase
+        when "little", "le", "l"
+          :little
+        when "big", "be", "b"
+          :big
+        else
+          raise CommandError, "Search endian must be little or big"
+        end
+      end
+
+      def parse_pattern(raw, type = :bytes, endian = :little)
         return "".b if raw.nil?
 
         source = raw.to_s
+        return decode_escaped_string(source) if type == :string
+        return parse_integer_pattern(source, type, endian) unless type == :bytes
+
         hex_match = source.match(/^0x([0-9a-fA-F]+)$/)
         if hex_match
           hex_value = hex_match[1]
@@ -361,7 +408,56 @@ module Lxdb
           return [hex_value].pack("H*").b
         end
 
+        decode_escaped_string(source)
+      end
+
+      def decode_escaped_string(source)
         source.b.gsub(/\\x([0-9a-fA-F]{2})/) { [Regexp.last_match(1)].pack("H*") }.b
+      end
+
+      def parse_integer_pattern(raw, type, endian)
+        resolved_type = type == :ptr ? pointer_search_type : type
+        value = parse_integer_value(raw)
+        validate_integer_range!(value, resolved_type)
+
+        [value].pack(integer_pack_template(resolved_type, endian)).b
+      end
+
+      def pointer_search_type
+        session.architecture.pointer_size == 8 ? :u64 : :u32
+      end
+
+      def parse_integer_value(raw)
+        source = raw.to_s
+        return source.to_i(16) if source.match?(/\A-?0x[0-9a-fA-F]+\z/)
+        return source.to_i(10) if source.match?(/\A-?\d+\z/)
+
+        raise CommandError, "Integer search pattern must be decimal or 0x-prefixed hex"
+      end
+
+      def validate_integer_range!(value, type)
+        bits = type.to_s[/\d+/].to_i
+        signed = type.to_s.start_with?("i")
+        min = signed ? -(1 << (bits - 1)) : 0
+        max = signed ? (1 << (bits - 1)) - 1 : (1 << bits) - 1
+        return if value >= min && value <= max
+
+        raise CommandError, "#{type} search pattern is out of range"
+      end
+
+      def integer_pack_template(type, endian)
+        case type
+        when :u8 then "C"
+        when :i8 then "c"
+        when :u16 then endian == :little ? "S<" : "S>"
+        when :i16 then endian == :little ? "s<" : "s>"
+        when :u32 then endian == :little ? "L<" : "L>"
+        when :i32 then endian == :little ? "l<" : "l>"
+        when :u64 then endian == :little ? "Q<" : "Q>"
+        when :i64 then endian == :little ? "q<" : "q>"
+        else
+          raise CommandError, "Unsupported search type: #{type}"
+        end
       end
 
       def resolve_search_regions(filter)
