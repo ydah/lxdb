@@ -44,12 +44,12 @@ RSpec.describe Lxdb::Commands::Search do
     it "parses regex options" do
       pattern, region, options = command.send(
         :parse_search_args,
-        ["user_[0-9]+", "--regex", "--ignore-case"]
+        ["user_[0-9]+", "--regex", "--ignore-case", "--regex-window", "0x2000"]
       )
 
       expect(pattern).to eq("user_[0-9]+")
       expect(region).to be_nil
-      expect(options).to include(regex: true, ignore_case: true)
+      expect(options).to include(regex: true, ignore_case: true, regex_window: 0x2000)
     end
   end
 
@@ -109,10 +109,10 @@ RSpec.describe Lxdb::Commands::Search do
       pattern = command.send(
         :build_search_pattern,
         "user_[0-9]+",
-        { type: :bytes, endian: :little, encoding: :utf8, ignore_case: true, regex: true }
+        { type: :bytes, endian: :little, encoding: :utf8, ignore_case: true, regex: true, regex_window: 64 }
       )
 
-      expect(pattern[:matcher]).to include(type: :regex, preview: "user_[0-9]+".b)
+      expect(pattern[:matcher]).to include(type: :regex, bytesize: 65, window: 64, preview: "user_[0-9]+".b)
       expect("USER_123").to match(pattern[:matcher][:regex])
     end
 

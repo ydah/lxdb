@@ -317,7 +317,7 @@ module Lxdb
       private
 
       def search_usage
-        "Usage: search <pattern|0xhex> [region] [--limit N] [--align N] [--perm rwx] [--regex] [--encoding utf8|utf16le|utf16be|utf32le|utf32be] [--ignore-case] [--type bytes|string|regex|u8|u16|u32|u64|i8|i16|i32|i64|ptr] [--endian little|big]"
+        "Usage: search <pattern|0xhex> [region] [--limit N] [--align N] [--perm rwx] [--regex] [--regex-window N] [--encoding utf8|utf16le|utf16be|utf32le|utf32be] [--ignore-case] [--type bytes|string|regex|u8|u16|u32|u64|i8|i16|i32|i64|ptr] [--endian little|big]"
       end
 
       def parse_search_args(args)
@@ -330,7 +330,8 @@ module Lxdb
           permissions: [],
           encoding: :utf8,
           ignore_case: false,
-          regex: false
+          regex: false,
+          regex_window: 4096
         }
         tokens = args.dup
 
@@ -372,6 +373,12 @@ module Lxdb
             options[:ignore_case] = true
           when "--regex", "--regexp"
             options[:regex] = true
+          when "--regex-window"
+            options[:regex_window] = parse_regex_window(tokens.shift)
+          when /\A--regex-window=(.+)\z/i
+            options[:regex_window] = parse_regex_window(Regexp.last_match(1))
+          when /\Aregex-window=(.+)\z/i
+            options[:regex_window] = parse_regex_window(Regexp.last_match(1))
           when "--type", "-t"
             options[:type] = parse_pattern_type(tokens.shift)
           when /\A--type=(.+)\z/i
@@ -420,6 +427,18 @@ module Lxdb
         else
           raise CommandError, "Search encoding must be utf8, utf16le, utf16be, utf32le, or utf32be"
         end
+      end
+
+      def parse_regex_window(raw)
+        value = raw.to_s
+        parsed = if value.match?(/\A0x[0-9a-fA-F]+\z/)
+                   value.to_i(16)
+                 elsif value.match?(/\A\d+\z/)
+                   value.to_i
+                 end
+        raise CommandError, "Regex window must be a positive integer" unless parsed&.positive?
+
+        parsed
       end
 
       def parse_alignment(raw)
@@ -541,10 +560,12 @@ module Lxdb
 
         flags = options[:ignore_case] ? Regexp::IGNORECASE : 0
         regex = Regexp.new(source.b, flags)
+        window = options[:regex_window] || 4096
         {
           type: :regex,
           regex: regex,
-          bytesize: 4097,
+          bytesize: window + 1,
+          window: window,
           preview: source.b
         }
       rescue RegexpError => e
