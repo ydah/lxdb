@@ -554,12 +554,9 @@ module Lxdb
       end
 
       def regex_matcher(source, options)
-        unless options[:encoding] == :utf8
-          raise CommandError, "Regex search works on raw bytes; omit --encoding"
-        end
+        return encoded_regex_matcher(source, options) unless options[:encoding] == :utf8
 
-        flags = options[:ignore_case] ? Regexp::IGNORECASE : 0
-        regex = Regexp.new(source.b, flags)
+        regex = Regexp.new(source.b, regex_flags(options))
         window = options[:regex_window] || 4096
         {
           type: :regex,
@@ -570,6 +567,37 @@ module Lxdb
         }
       rescue RegexpError => e
         raise CommandError, "Invalid search regex: #{e.message}"
+      end
+
+      def encoded_regex_matcher(source, options)
+        regex = Regexp.new(source, regex_flags(options))
+        window = options[:regex_window] || 4096
+        {
+          type: :encoded_regex,
+          regex: regex,
+          encoding: options[:encoding],
+          unit_size: encoded_regex_unit_size(options[:encoding]),
+          bytesize: window + encoded_regex_unit_size(options[:encoding]),
+          window: window,
+          preview: source.b
+        }
+      rescue RegexpError => e
+        raise CommandError, "Invalid search regex: #{e.message}"
+      end
+
+      def regex_flags(options)
+        options[:ignore_case] ? Regexp::IGNORECASE : 0
+      end
+
+      def encoded_regex_unit_size(encoding)
+        case encoding
+        when :utf16le, :utf16be
+          2
+        when :utf32le, :utf32be
+          4
+        else
+          1
+        end
       end
 
       def decode_escaped_string(source)
@@ -824,6 +852,8 @@ module Lxdb
           find_case_insensitive_string(haystack, needle, search_pos)
         when :regex
           find_regex(haystack, needle, search_pos)
+        when :encoded_regex
+          find_encoded_regex(haystack, needle, search_pos)
         end
       end
 
@@ -852,8 +882,39 @@ module Lxdb
         nil
       end
 
+      def find_encoded_regex(haystack, needle, search_pos)
+        limit = haystack.bytesize - needle[:unit_size]
+        cursor = search_pos
+        while cursor <= limit
+          length = encoded_regex_match_length_at?(haystack, needle, cursor)
+          return { position: cursor, length: length } if length
+
+          cursor += 1
+        end
+
+        nil
+      end
+
+      def encoded_regex_match_length_at?(haystack, needle, position)
+        usable = haystack.bytesize - position
+        usable -= usable % needle[:unit_size]
+        return nil if usable <= 0
+
+        encoded = haystack.byteslice(position, usable).dup
+        encoded.force_encoding(ruby_string_encoding(needle[:encoding]))
+        return nil unless encoded.valid_encoding?
+
+        utf8 = encoded.encode(Encoding::UTF_8)
+        match = needle[:regex].match(utf8)
+        return nil unless match && match.begin(0).zero? && !match[0].empty?
+
+        match[0].encode(ruby_string_encoding(needle[:encoding])).b.bytesize
+      rescue Encoding::UndefinedConversionError, Encoding::InvalidByteSequenceError
+        nil
+      end
+
       def next_search_position(needle, position, length)
-        if needle.is_a?(Hash) && needle[:type] == :regex
+        if needle.is_a?(Hash) && %i[regex encoded_regex].include?(needle[:type])
           position + [length, 1].max
         else
           position + 1

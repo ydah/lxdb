@@ -116,6 +116,17 @@ RSpec.describe Lxdb::Commands::Search do
       expect("USER_123").to match(pattern[:matcher][:regex])
     end
 
+    it "builds an encoded regex matcher" do
+      pattern = command.send(
+        :build_search_pattern,
+        "A.B",
+        { type: :bytes, endian: :little, encoding: :utf16le, ignore_case: true, regex: true, regex_window: 64 }
+      )
+
+      expect(pattern[:matcher]).to include(type: :encoded_regex, encoding: :utf16le, unit_size: 2)
+      expect("a1b").to match(pattern[:matcher][:regex])
+    end
+
     it "rejects invalid regex patterns" do
       expect do
         command.send(
@@ -212,6 +223,32 @@ RSpec.describe Lxdb::Commands::Search do
       matches = command.send(:search_region, region, pattern[:matcher], 10, 1)
 
       expect(matches.map { |match| match[:address] }).to eq([0x3003, 0x300a])
+    end
+
+    it "finds encoded regex matches" do
+      memory = double("memory")
+      data = "xxA1B".encode(Encoding::UTF_16LE).b
+      read_result = double("read_result", success?: true, data: data)
+      region = {
+        start: 0x4000,
+        end: 0x4000 + data.bytesize,
+        size: data.bytesize,
+        permissions: "r--",
+        readable: true,
+        name: "test"
+      }
+      pattern = command.send(
+        :build_search_pattern,
+        "a.b",
+        { type: :bytes, endian: :little, encoding: :utf16le, ignore_case: true, regex: true, regex_window: 64 }
+      )
+
+      allow(session).to receive(:memory).and_return(memory)
+      allow(memory).to receive(:read_safe).with(0x4000, data.bytesize).and_return(read_result)
+
+      matches = command.send(:search_region, region, pattern[:matcher], 10, 1)
+
+      expect(matches.map { |match| match[:address] }).to eq([0x4004])
     end
   end
 end
