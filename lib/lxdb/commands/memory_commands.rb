@@ -317,7 +317,7 @@ module Lxdb
       private
 
       def search_usage
-        "Usage: search <pattern|0xhex> [region] [--limit N] [--align N] [--perm rwx] [--regex] [--regex-window N] [--encoding utf8|utf16le|utf16be|utf32le|utf32be] [--ignore-case] [--type bytes|string|regex|u8|u16|u32|u64|i8|i16|i32|i64|ptr] [--endian little|big]"
+        "Usage: search <pattern|0xhex> [region] [--limit N] [--align N] [--perm rwx] [--regex] [--regex-window N] [--regex-stride N] [--encoding utf8|utf16le|utf16be|utf32le|utf32be] [--ignore-case] [--type bytes|string|regex|u8|u16|u32|u64|i8|i16|i32|i64|ptr] [--endian little|big]"
       end
 
       def parse_search_args(args)
@@ -331,7 +331,8 @@ module Lxdb
           encoding: :utf8,
           ignore_case: false,
           regex: false,
-          regex_window: 4096
+          regex_window: 4096,
+          regex_stride: nil
         }
         tokens = args.dup
 
@@ -379,6 +380,12 @@ module Lxdb
             options[:regex_window] = parse_regex_window(Regexp.last_match(1))
           when /\Aregex-window=(.+)\z/i
             options[:regex_window] = parse_regex_window(Regexp.last_match(1))
+          when "--regex-stride"
+            options[:regex_stride] = parse_regex_stride(tokens.shift)
+          when /\A--regex-stride=(.+)\z/i
+            options[:regex_stride] = parse_regex_stride(Regexp.last_match(1))
+          when /\Aregex-stride=(.+)\z/i
+            options[:regex_stride] = parse_regex_stride(Regexp.last_match(1))
           when "--type", "-t"
             options[:type] = parse_pattern_type(tokens.shift)
           when /\A--type=(.+)\z/i
@@ -437,6 +444,18 @@ module Lxdb
                    value.to_i
                  end
         raise CommandError, "Regex window must be a positive integer" unless parsed&.positive?
+
+        parsed
+      end
+
+      def parse_regex_stride(raw)
+        value = raw.to_s
+        parsed = if value.match?(/\A0x[0-9a-fA-F]+\z/)
+                   value.to_i(16)
+                 elsif value.match?(/\A\d+\z/)
+                   value.to_i
+                 end
+        raise CommandError, "Regex stride must be a positive integer" unless parsed&.positive?
 
         parsed
       end
@@ -577,6 +596,7 @@ module Lxdb
           regex: regex,
           encoding: options[:encoding],
           unit_size: encoded_regex_unit_size(options[:encoding]),
+          stride: encoded_regex_stride(options),
           bytesize: window + encoded_regex_unit_size(options[:encoding]),
           window: window,
           preview: source.b
@@ -598,6 +618,10 @@ module Lxdb
         else
           1
         end
+      end
+
+      def encoded_regex_stride(options)
+        options[:regex_stride] || encoded_regex_unit_size(options[:encoding])
       end
 
       def decode_escaped_string(source)
@@ -885,11 +909,12 @@ module Lxdb
       def find_encoded_regex(haystack, needle, search_pos)
         limit = haystack.bytesize - needle[:unit_size]
         cursor = search_pos
+        stride = needle[:stride] || needle[:unit_size]
         while cursor <= limit
           length = encoded_regex_match_length_at?(haystack, needle, cursor)
           return { position: cursor, length: length } if length
 
-          cursor += 1
+          cursor += stride
         end
 
         nil
