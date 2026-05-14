@@ -29,6 +29,17 @@ RSpec.describe Lxdb::Commands::Search do
       expect(region).to be_nil
       expect(options).to include(align: 16, permissions: %i[readable writable executable])
     end
+
+    it "parses string encoding and case-insensitive options" do
+      pattern, region, options = command.send(
+        :parse_search_args,
+        ["needle", "--encoding", "utf16le", "--ignore-case"]
+      )
+
+      expect(pattern).to eq("needle")
+      expect(region).to be_nil
+      expect(options).to include(encoding: :utf16le, ignore_case: true)
+    end
   end
 
   describe "#parse_pattern" do
@@ -50,6 +61,37 @@ RSpec.describe Lxdb::Commands::Search do
       expect do
         command.send(:parse_pattern, "256", :u8, :little)
       end.to raise_error(Lxdb::CommandError, /out of range/)
+    end
+
+    it "encodes string searches with the requested encoding" do
+      expect(command.send(:parse_pattern, "AZ", :string, :little, :utf16le))
+        .to eq("AZ".encode(Encoding::UTF_16LE).b)
+      expect(command.send(:parse_pattern, "AZ", :string, :little, :utf32be))
+        .to eq("AZ".encode(Encoding.find("UTF-32BE")).b)
+    end
+  end
+
+  describe "#build_search_pattern" do
+    it "treats non-UTF-8 encoding as string search" do
+      pattern = command.send(
+        :build_search_pattern,
+        "AZ",
+        { type: :bytes, endian: :little, encoding: :utf16be, ignore_case: false }
+      )
+
+      expect(pattern[:matcher]).to eq("AZ".encode(Encoding::UTF_16BE).b)
+      expect(pattern[:preview]).to eq("AZ".encode(Encoding::UTF_16BE).b)
+    end
+
+    it "builds a case-insensitive string matcher" do
+      pattern = command.send(
+        :build_search_pattern,
+        "az",
+        { type: :string, endian: :little, encoding: :utf8, ignore_case: true }
+      )
+
+      expect(pattern[:matcher]).to include(type: :case_insensitive_string, bytesize: 2)
+      expect(pattern[:preview]).to eq("az".b)
     end
   end
 
@@ -86,6 +128,32 @@ RSpec.describe Lxdb::Commands::Search do
       matches = command.send(:search_region, region, "A".b, 10, 2)
 
       expect(matches.map { |match| match[:address] }).to eq([0x1000, 0x1002])
+    end
+
+    it "finds case-insensitive UTF-16 string matches" do
+      memory = double("memory")
+      data = "xxAB".encode(Encoding::UTF_16LE).b
+      read_result = double("read_result", success?: true, data: data)
+      region = {
+        start: 0x2000,
+        end: 0x2000 + data.bytesize,
+        size: data.bytesize,
+        permissions: "r--",
+        readable: true,
+        name: "test"
+      }
+      pattern = command.send(
+        :build_search_pattern,
+        "ab",
+        { type: :string, endian: :little, encoding: :utf16le, ignore_case: true }
+      )
+
+      allow(session).to receive(:memory).and_return(memory)
+      allow(memory).to receive(:read_safe).with(0x2000, data.bytesize).and_return(read_result)
+
+      matches = command.send(:search_region, region, pattern[:matcher], 10, 1)
+
+      expect(matches.map { |match| match[:address] }).to eq([0x2004])
     end
   end
 end

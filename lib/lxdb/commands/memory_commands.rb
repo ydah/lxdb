@@ -284,7 +284,8 @@ module Lxdb
         pattern, region_filter, options = parse_search_args(args)
         raise CommandError, search_usage unless pattern
 
-        bytes = parse_pattern(pattern, options[:type], options[:endian])
+        search_pattern = build_search_pattern(pattern, options)
+        bytes = search_pattern[:preview]
         raise CommandError, "Search pattern is empty" if bytes.empty?
 
         regions = filter_search_regions(resolve_search_regions(region_filter), options[:permissions])
@@ -292,7 +293,7 @@ module Lxdb
 
         matches = []
         regions.each do |region_info|
-          region_matches = search_region(region_info, bytes, options[:max_results] - matches.size, options[:align])
+          region_matches = search_region(region_info, search_pattern[:matcher], options[:max_results] - matches.size, options[:align])
           matches.concat(region_matches)
           break if matches.size >= options[:max_results]
         end
@@ -316,12 +317,20 @@ module Lxdb
       private
 
       def search_usage
-        "Usage: search <pattern|0xhex> [region] [--limit N] [--align N] [--perm rwx] [--type bytes|string|u8|u16|u32|u64|i8|i16|i32|i64|ptr] [--endian little|big]"
+        "Usage: search <pattern|0xhex> [region] [--limit N] [--align N] [--perm rwx] [--encoding utf8|utf16le|utf16be|utf32le|utf32be] [--ignore-case] [--type bytes|string|u8|u16|u32|u64|i8|i16|i32|i64|ptr] [--endian little|big]"
       end
 
       def parse_search_args(args)
         positional = []
-        options = { max_results: 200, type: :bytes, endian: :little, align: 1, permissions: [] }
+        options = {
+          max_results: 200,
+          type: :bytes,
+          endian: :little,
+          align: 1,
+          permissions: [],
+          encoding: :utf8,
+          ignore_case: false
+        }
         tokens = args.dup
 
         until tokens.empty?
@@ -352,6 +361,14 @@ module Lxdb
             options[:permissions] << :writable
           when "--executable", "--execute", "--exec"
             options[:permissions] << :executable
+          when "--encoding", "--enc"
+            options[:encoding] = parse_string_encoding(tokens.shift)
+          when /\A--(?:encoding|enc)=(.+)\z/i
+            options[:encoding] = parse_string_encoding(Regexp.last_match(1))
+          when /\A(?:encoding|enc)=(.+)\z/i
+            options[:encoding] = parse_string_encoding(Regexp.last_match(1))
+          when "--ignore-case", "--case-insensitive", "-i"
+            options[:ignore_case] = true
           when "--type", "-t"
             options[:type] = parse_pattern_type(tokens.shift)
           when /\A--type=(.+)\z/i
@@ -383,6 +400,23 @@ module Lxdb
         raise CommandError, "Search limit must be a positive integer" unless parsed.positive?
 
         parsed
+      end
+
+      def parse_string_encoding(raw)
+        case raw.to_s.downcase.tr("_-", "")
+        when "utf8", "utf"
+          :utf8
+        when "utf16", "utf16le"
+          :utf16le
+        when "utf16be"
+          :utf16be
+        when "utf32", "utf32le"
+          :utf32le
+        when "utf32be"
+          :utf32be
+        else
+          raise CommandError, "Search encoding must be utf8, utf16le, utf16be, utf32le, or utf32be"
+        end
       end
 
       def parse_alignment(raw)
@@ -447,11 +481,33 @@ module Lxdb
         end
       end
 
-      def parse_pattern(raw, type = :bytes, endian = :little)
+      def build_search_pattern(raw, options)
+        if string_pattern_search?(raw, options)
+          matcher = if options[:ignore_case]
+                      case_insensitive_string_matcher(raw.to_s, options[:encoding])
+                    else
+                      encode_string_pattern(raw.to_s, options[:encoding])
+                    end
+          preview = matcher.is_a?(Hash) ? matcher[:preview] : matcher
+          return { matcher: matcher, preview: preview }
+        end
+
+        bytes = parse_pattern(raw, options[:type], options[:endian], options[:encoding])
+        { matcher: bytes, preview: bytes }
+      end
+
+      def string_pattern_search?(raw, options)
+        return true if options[:type] == :string
+        return true if options[:encoding] != :utf8
+
+        options[:ignore_case] && !raw.to_s.match?(/^0x[0-9a-fA-F]+$/)
+      end
+
+      def parse_pattern(raw, type = :bytes, endian = :little, encoding = :utf8)
         return "".b if raw.nil?
 
         source = raw.to_s
-        return decode_escaped_string(source) if type == :string
+        return encode_string_pattern(source, encoding) if type == :string
         return parse_integer_pattern(source, type, endian) unless type == :bytes
 
         hex_match = source.match(/^0x([0-9a-fA-F]+)$/)
@@ -466,6 +522,57 @@ module Lxdb
 
       def decode_escaped_string(source)
         source.b.gsub(/\\x([0-9a-fA-F]{2})/) { [Regexp.last_match(1)].pack("H*") }.b
+      end
+
+      def encode_string_pattern(source, encoding)
+        text = decoded_string_pattern(source)
+        text.encode(ruby_string_encoding(encoding)).b
+      rescue Encoding::UndefinedConversionError, Encoding::InvalidByteSequenceError
+        raise CommandError, "String search pattern cannot be encoded as #{encoding}"
+      end
+
+      def decoded_string_pattern(source)
+        text = decode_escaped_string(source).dup
+        text.force_encoding(Encoding::UTF_8)
+        raise CommandError, "String search pattern must be valid UTF-8" unless text.valid_encoding?
+
+        text
+      end
+
+      def ruby_string_encoding(encoding)
+        case encoding
+        when :utf8
+          Encoding::UTF_8
+        when :utf16le
+          Encoding::UTF_16LE
+        when :utf16be
+          Encoding::UTF_16BE
+        when :utf32le
+          Encoding.find("UTF-32LE")
+        when :utf32be
+          Encoding.find("UTF-32BE")
+        else
+          raise CommandError, "Unsupported search encoding: #{encoding}"
+        end
+      end
+
+      def case_insensitive_string_matcher(source, encoding)
+        text = decoded_string_pattern(source)
+        units = text.each_char.map { |char| encoded_case_variants(char, encoding) }
+        {
+          type: :case_insensitive_string,
+          units: units,
+          bytesize: units.sum { |variants| variants.first.bytesize },
+          preview: encode_string_pattern(source, encoding)
+        }
+      end
+
+      def encoded_case_variants(char, encoding)
+        variants = [char, char.downcase, char.upcase].uniq
+        encoded = variants.map { |variant| variant.encode(ruby_string_encoding(encoding)).b }.uniq
+        return encoded if encoded.map(&:bytesize).uniq.one?
+
+        [char.encode(ruby_string_encoding(encoding)).b]
       end
 
       def parse_integer_pattern(raw, type, endian)
@@ -611,7 +718,7 @@ module Lxdb
 
         matches = []
         chunk_size = 0x10000
-        overlap = [needle.bytesize - 1, 0].max
+        overlap = [needle_bytesize(needle) - 1, 0].max
         carry = +""
         cursor = 0
 
@@ -628,7 +735,7 @@ module Lxdb
 
           haystack = carry + chunk
           search_pos = 0
-          while (pos = haystack.index(needle, search_pos))
+          while (pos = find_needle(haystack, needle, search_pos))
             absolute = region[:start] + cursor + pos - carry.bytesize
             if aligned_address?(absolute, alignment)
               matches << { address: absolute, region: region }
@@ -643,6 +750,39 @@ module Lxdb
         end
 
         matches
+      end
+
+      def needle_bytesize(needle)
+        needle.is_a?(Hash) ? needle[:bytesize] : needle.bytesize
+      end
+
+      def find_needle(haystack, needle, search_pos)
+        return haystack.index(needle, search_pos) unless needle.is_a?(Hash)
+
+        find_case_insensitive_string(haystack, needle, search_pos)
+      end
+
+      def find_case_insensitive_string(haystack, needle, search_pos)
+        limit = haystack.bytesize - needle[:bytesize]
+        cursor = search_pos
+        while cursor <= limit
+          return cursor if case_insensitive_string_at?(haystack, needle, cursor)
+
+          cursor += 1
+        end
+
+        nil
+      end
+
+      def case_insensitive_string_at?(haystack, needle, position)
+        offset = 0
+        needle[:units].all? do |variants|
+          matched = variants.any? do |variant|
+            haystack.byteslice(position + offset, variant.bytesize) == variant
+          end
+          offset += variants.first.bytesize
+          matched
+        end
       end
 
       def aligned_address?(address, alignment)
