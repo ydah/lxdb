@@ -51,6 +51,12 @@ RSpec.describe Lxdb::Commands::Search do
       expect(region).to be_nil
       expect(options).to include(regex: true, ignore_case: true, regex_window: 0x2000, regex_stride: 2)
     end
+
+    it "rejects encoded regex stride values that do not match the encoding unit" do
+      expect do
+        command.send(:parse_search_args, ["needle", "--regex", "--encoding", "utf16le", "--regex-stride", "3"])
+      end.to raise_error(Lxdb::CommandError, /multiple of 2/)
+    end
   end
 
   describe "#parse_pattern" do
@@ -125,6 +131,17 @@ RSpec.describe Lxdb::Commands::Search do
 
       expect(pattern[:matcher]).to include(type: :encoded_regex, encoding: :utf16le, unit_size: 2, stride: 2)
       expect("a1b").to match(pattern[:matcher][:regex])
+    end
+
+    it "limits encoded regex matching to the configured window" do
+      matcher = command.send(
+        :build_search_pattern,
+        "A.B",
+        { type: :bytes, endian: :little, encoding: :utf16le, ignore_case: false, regex: true, regex_window: 4 }
+      )[:matcher]
+      haystack = "A1B".encode(Encoding::UTF_16LE).b
+
+      expect(command.send(:find_needle, haystack, matcher, 0)).to be_nil
     end
 
     it "rejects invalid regex patterns" do

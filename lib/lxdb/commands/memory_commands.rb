@@ -406,6 +406,7 @@ module Lxdb
         raise CommandError, search_usage if positional.size > 2
 
         options[:permissions].uniq!
+        validate_encoded_regex_stride!(options)
         [positional[0], positional[1], options]
       end
 
@@ -458,6 +459,17 @@ module Lxdb
         raise CommandError, "Regex stride must be a positive integer" unless parsed&.positive?
 
         parsed
+      end
+
+      def validate_encoded_regex_stride!(options)
+        return unless regex_pattern_search?(options)
+        return if options[:encoding] == :utf8
+        return unless options[:regex_stride]
+
+        unit_size = encoded_regex_unit_size(options[:encoding])
+        return if (options[:regex_stride] % unit_size).zero?
+
+        raise CommandError, "Regex stride must be a multiple of #{unit_size} for #{options[:encoding]}"
       end
 
       def parse_alignment(raw)
@@ -922,6 +934,7 @@ module Lxdb
 
       def encoded_regex_match_length_at?(haystack, needle, position)
         usable = haystack.bytesize - position
+        usable = [usable, needle[:window]].min if needle[:window]
         usable -= usable % needle[:unit_size]
         return nil if usable <= 0
 
