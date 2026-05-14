@@ -57,6 +57,14 @@ RSpec.describe Lxdb::Commands::Search do
         command.send(:parse_search_args, ["needle", "--regex", "--encoding", "utf16le", "--regex-stride", "3"])
       end.to raise_error(Lxdb::CommandError, /multiple of 2/)
     end
+
+    it "parses regex timeout controls" do
+      _, _, timeout_options = command.send(:parse_search_args, ["needle", "--regex", "--regex-timeout", "0.25"])
+      _, _, disabled_options = command.send(:parse_search_args, ["needle", "--regex", "--no-regex-timeout"])
+
+      expect(timeout_options).to include(regex_timeout: 0.25)
+      expect(disabled_options).to include(regex_timeout: nil)
+    end
   end
 
   describe "#parse_pattern" do
@@ -120,6 +128,16 @@ RSpec.describe Lxdb::Commands::Search do
 
       expect(pattern[:matcher]).to include(type: :regex, bytesize: 65, window: 64, preview: "user_[0-9]+".b)
       expect("USER_123").to match(pattern[:matcher][:regex])
+    end
+
+    it "builds regex matchers with a timeout guard" do
+      pattern = command.send(
+        :build_search_pattern,
+        "user_[0-9]+",
+        { type: :bytes, endian: :little, encoding: :utf8, ignore_case: false, regex: true, regex_window: 64, regex_timeout: 0.5 }
+      )
+
+      expect(pattern[:matcher][:regex]).to be_a(Regexp)
     end
 
     it "builds an encoded regex matcher" do

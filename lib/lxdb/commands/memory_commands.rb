@@ -317,7 +317,7 @@ module Lxdb
       private
 
       def search_usage
-        "Usage: search <pattern|0xhex> [region] [--limit N] [--align N] [--perm rwx] [--regex] [--regex-window N] [--regex-stride N] [--encoding utf8|utf16le|utf16be|utf32le|utf32be] [--ignore-case] [--type bytes|string|regex|u8|u16|u32|u64|i8|i16|i32|i64|ptr] [--endian little|big]"
+        "Usage: search <pattern|0xhex> [region] [--limit N] [--align N] [--perm rwx] [--regex] [--regex-window N] [--regex-stride N] [--regex-timeout SECONDS|--no-regex-timeout] [--encoding utf8|utf16le|utf16be|utf32le|utf32be] [--ignore-case] [--type bytes|string|regex|u8|u16|u32|u64|i8|i16|i32|i64|ptr] [--endian little|big]"
       end
 
       def parse_search_args(args)
@@ -332,7 +332,8 @@ module Lxdb
           ignore_case: false,
           regex: false,
           regex_window: 4096,
-          regex_stride: nil
+          regex_stride: nil,
+          regex_timeout: default_regex_timeout
         }
         tokens = args.dup
 
@@ -386,6 +387,14 @@ module Lxdb
             options[:regex_stride] = parse_regex_stride(Regexp.last_match(1))
           when /\Aregex-stride=(.+)\z/i
             options[:regex_stride] = parse_regex_stride(Regexp.last_match(1))
+          when "--regex-timeout"
+            options[:regex_timeout] = parse_regex_timeout(tokens.shift)
+          when /\A--regex-timeout=(.+)\z/i
+            options[:regex_timeout] = parse_regex_timeout(Regexp.last_match(1))
+          when /\Aregex-timeout=(.+)\z/i
+            options[:regex_timeout] = parse_regex_timeout(Regexp.last_match(1))
+          when "--no-regex-timeout"
+            options[:regex_timeout] = nil
           when "--type", "-t"
             options[:type] = parse_pattern_type(tokens.shift)
           when /\A--type=(.+)\z/i
@@ -459,6 +468,22 @@ module Lxdb
         raise CommandError, "Regex stride must be a positive integer" unless parsed&.positive?
 
         parsed
+      end
+
+      def parse_regex_timeout(raw)
+        value = raw.to_s
+        return nil if value.match?(/\A(?:0|off|none|false)\z/i)
+
+        parsed = Float(value, exception: false)
+        raise CommandError, "Regex timeout must be a positive number of seconds" unless parsed&.positive?
+
+        parsed
+      end
+
+      def default_regex_timeout
+        parse_regex_timeout(ENV.fetch("LXDB_REGEX_TIMEOUT", "1.0"))
+      rescue CommandError
+        1.0
       end
 
       def validate_encoded_regex_stride!(options)
@@ -587,7 +612,7 @@ module Lxdb
       def regex_matcher(source, options)
         return encoded_regex_matcher(source, options) unless options[:encoding] == :utf8
 
-        regex = Regexp.new(source.b, regex_flags(options))
+        regex = compile_regex(source.b, regex_flags(options), options[:regex_timeout])
         window = options[:regex_window] || 4096
         {
           type: :regex,
@@ -601,7 +626,7 @@ module Lxdb
       end
 
       def encoded_regex_matcher(source, options)
-        regex = Regexp.new(source, regex_flags(options))
+        regex = compile_regex(source, regex_flags(options), options[:regex_timeout])
         window = options[:regex_window] || 4096
         {
           type: :encoded_regex,
@@ -619,6 +644,14 @@ module Lxdb
 
       def regex_flags(options)
         options[:ignore_case] ? Regexp::IGNORECASE : 0
+      end
+
+      def compile_regex(source, flags, timeout)
+        return Regexp.new(source, flags) unless timeout
+
+        Regexp.new(source, flags, timeout: timeout)
+      rescue ArgumentError
+        Regexp.new(source, flags)
       end
 
       def encoded_regex_unit_size(encoding)
@@ -916,6 +949,8 @@ module Lxdb
         end
 
         nil
+      rescue Regexp::TimeoutError
+        nil
       end
 
       def find_encoded_regex(haystack, needle, search_pos)
@@ -947,7 +982,7 @@ module Lxdb
         return nil unless match && match.begin(0).zero? && !match[0].empty?
 
         match[0].encode(ruby_string_encoding(needle[:encoding])).b.bytesize
-      rescue Encoding::UndefinedConversionError, Encoding::InvalidByteSequenceError
+      rescue Encoding::UndefinedConversionError, Encoding::InvalidByteSequenceError, Regexp::TimeoutError
         nil
       end
 
