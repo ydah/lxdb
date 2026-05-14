@@ -287,12 +287,12 @@ module Lxdb
         bytes = parse_pattern(pattern, options[:type], options[:endian])
         raise CommandError, "Search pattern is empty" if bytes.empty?
 
-        regions = resolve_search_regions(region_filter)
+        regions = filter_search_regions(resolve_search_regions(region_filter), options[:permissions])
         raise CommandError, "No memory regions matched the request" if regions.empty?
 
         matches = []
         regions.each do |region_info|
-          region_matches = search_region(region_info, bytes, options[:max_results] - matches.size)
+          region_matches = search_region(region_info, bytes, options[:max_results] - matches.size, options[:align])
           matches.concat(region_matches)
           break if matches.size >= options[:max_results]
         end
@@ -316,12 +316,12 @@ module Lxdb
       private
 
       def search_usage
-        "Usage: search <pattern|0xhex> [region] [--limit N] [--type bytes|string|u8|u16|u32|u64|i8|i16|i32|i64|ptr] [--endian little|big]"
+        "Usage: search <pattern|0xhex> [region] [--limit N] [--align N] [--perm rwx] [--type bytes|string|u8|u16|u32|u64|i8|i16|i32|i64|ptr] [--endian little|big]"
       end
 
       def parse_search_args(args)
         positional = []
-        options = { max_results: 200, type: :bytes, endian: :little }
+        options = { max_results: 200, type: :bytes, endian: :little, align: 1, permissions: [] }
         tokens = args.dup
 
         until tokens.empty?
@@ -334,6 +334,24 @@ module Lxdb
             options[:max_results] = parse_max_results(Regexp.last_match(1))
           when /\A(?:limit|max|results)=(.+)\z/i
             options[:max_results] = parse_max_results(Regexp.last_match(1))
+          when "--align", "-a"
+            options[:align] = parse_alignment(tokens.shift)
+          when /\A--align=(.+)\z/i
+            options[:align] = parse_alignment(Regexp.last_match(1))
+          when /\Aalign=(.+)\z/i
+            options[:align] = parse_alignment(Regexp.last_match(1))
+          when "--perm", "--perms", "--permissions"
+            options[:permissions].concat(parse_permission_filter(tokens.shift))
+          when /\A--(?:perm|perms|permissions)=(.+)\z/i
+            options[:permissions].concat(parse_permission_filter(Regexp.last_match(1)))
+          when /\A(?:perm|perms|permissions)=(.+)\z/i
+            options[:permissions].concat(parse_permission_filter(Regexp.last_match(1)))
+          when "--readable", "--read"
+            options[:permissions] << :readable
+          when "--writable", "--write"
+            options[:permissions] << :writable
+          when "--executable", "--execute", "--exec"
+            options[:permissions] << :executable
           when "--type", "-t"
             options[:type] = parse_pattern_type(tokens.shift)
           when /\A--type=(.+)\z/i
@@ -353,6 +371,7 @@ module Lxdb
 
         raise CommandError, search_usage if positional.size > 2
 
+        options[:permissions].uniq!
         [positional[0], positional[1], options]
       end
 
@@ -364,6 +383,40 @@ module Lxdb
         raise CommandError, "Search limit must be a positive integer" unless parsed.positive?
 
         parsed
+      end
+
+      def parse_alignment(raw)
+        value = raw.to_s
+        parsed = if value.match?(/\A0x[0-9a-fA-F]+\z/)
+                   value.to_i(16)
+                 elsif value.match?(/\A\d+\z/)
+                   value.to_i
+                 end
+        raise CommandError, "Search alignment must be a positive integer" unless parsed&.positive?
+
+        parsed
+      end
+
+      def parse_permission_filter(raw)
+        value = raw.to_s.downcase.strip
+        case value
+        when "read", "readable", "r"
+          [:readable]
+        when "write", "writable", "w"
+          [:writable]
+        when "exec", "execute", "executable", "x"
+          [:executable]
+        when /\A[rwx-]+\z/
+          permissions = []
+          permissions << :readable if value.include?("r")
+          permissions << :writable if value.include?("w")
+          permissions << :executable if value.include?("x")
+          raise CommandError, "Search permission filter must include r, w, or x" if permissions.empty?
+
+          permissions
+        else
+          raise CommandError, "Search permission filter must be readable, writable, executable, or rwx-style"
+        end
       end
 
       def parse_pattern_type(raw)
@@ -494,6 +547,33 @@ module Lxdb
         end
       end
 
+      def filter_search_regions(regions, permissions)
+        return regions if permissions.empty?
+
+        regions.select do |entry|
+          permissions.all? { |permission| region_has_permission?(entry, permission) }
+        end
+      end
+
+      def region_has_permission?(region, permission)
+        case permission
+        when :readable
+          return region[:readable] unless region[:readable].nil?
+
+          region[:permissions].to_s.include?("r")
+        when :writable
+          return region[:writable] unless region[:writable].nil?
+
+          region[:permissions].to_s.include?("w")
+        when :executable
+          return region[:executable] unless region[:executable].nil?
+
+          region[:permissions].to_s.include?("x")
+        else
+          false
+        end
+      end
+
       def parse_memory_regions(raw)
         regions = []
         raw.to_s.each_line do |line|
@@ -525,7 +605,7 @@ module Lxdb
         regions
       end
 
-      def search_region(region, needle, max_results = 200)
+      def search_region(region, needle, max_results = 200, alignment = 1)
         return [] unless region[:readable]
         return [] if region[:size].nil? || region[:size] <= 0
 
@@ -550,8 +630,10 @@ module Lxdb
           search_pos = 0
           while (pos = haystack.index(needle, search_pos))
             absolute = region[:start] + cursor + pos - carry.bytesize
-            matches << { address: absolute, region: region }
-            break if matches.size >= max_results
+            if aligned_address?(absolute, alignment)
+              matches << { address: absolute, region: region }
+              break if matches.size >= max_results
+            end
 
             search_pos = pos + 1
           end
@@ -561,6 +643,10 @@ module Lxdb
         end
 
         matches
+      end
+
+      def aligned_address?(address, alignment)
+        alignment <= 1 || (address % alignment).zero?
       end
 
       def carry_text(data, overlap)

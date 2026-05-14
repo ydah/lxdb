@@ -18,6 +18,17 @@ RSpec.describe Lxdb::Commands::Search do
       expect(region).to eq("r--")
       expect(options).to include(max_results: 3, type: :u32, endian: :big)
     end
+
+    it "parses alignment and permission filters" do
+      pattern, region, options = command.send(
+        :parse_search_args,
+        ["needle", "--align", "0x10", "--perm", "rw", "--executable"]
+      )
+
+      expect(pattern).to eq("needle")
+      expect(region).to be_nil
+      expect(options).to include(align: 16, permissions: %i[readable writable executable])
+    end
   end
 
   describe "#parse_pattern" do
@@ -39,6 +50,42 @@ RSpec.describe Lxdb::Commands::Search do
       expect do
         command.send(:parse_pattern, "256", :u8, :little)
       end.to raise_error(Lxdb::CommandError, /out of range/)
+    end
+  end
+
+  describe "#filter_search_regions" do
+    it "keeps only regions matching all requested permissions" do
+      regions = [
+        { permissions: "r--", readable: true, writable: false, executable: false },
+        { permissions: "rw-", readable: true, writable: true, executable: false },
+        { permissions: "r-x", readable: true, writable: false, executable: true }
+      ]
+
+      filtered = command.send(:filter_search_regions, regions, %i[readable executable])
+
+      expect(filtered).to eq([regions[2]])
+    end
+  end
+
+  describe "#search_region" do
+    it "returns only aligned matches when alignment is requested" do
+      memory = double("memory")
+      read_result = double("read_result", success?: true, data: "AAAA".b)
+      region = {
+        start: 0x1000,
+        end: 0x1004,
+        size: 4,
+        permissions: "r--",
+        readable: true,
+        name: "test"
+      }
+
+      allow(session).to receive(:memory).and_return(memory)
+      allow(memory).to receive(:read_safe).with(0x1000, 4).and_return(read_result)
+
+      matches = command.send(:search_region, region, "A".b, 10, 2)
+
+      expect(matches.map { |match| match[:address] }).to eq([0x1000, 0x1002])
     end
   end
 end
