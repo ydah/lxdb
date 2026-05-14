@@ -317,7 +317,7 @@ module Lxdb
       private
 
       def search_usage
-        "Usage: search <pattern|0xhex> [region] [--limit N] [--align N] [--perm rwx] [--encoding utf8|utf16le|utf16be|utf32le|utf32be] [--ignore-case] [--type bytes|string|u8|u16|u32|u64|i8|i16|i32|i64|ptr] [--endian little|big]"
+        "Usage: search <pattern|0xhex> [region] [--limit N] [--align N] [--perm rwx] [--regex] [--encoding utf8|utf16le|utf16be|utf32le|utf32be] [--ignore-case] [--type bytes|string|regex|u8|u16|u32|u64|i8|i16|i32|i64|ptr] [--endian little|big]"
       end
 
       def parse_search_args(args)
@@ -329,7 +329,8 @@ module Lxdb
           align: 1,
           permissions: [],
           encoding: :utf8,
-          ignore_case: false
+          ignore_case: false,
+          regex: false
         }
         tokens = args.dup
 
@@ -369,6 +370,8 @@ module Lxdb
             options[:encoding] = parse_string_encoding(Regexp.last_match(1))
           when "--ignore-case", "--case-insensitive", "-i"
             options[:ignore_case] = true
+          when "--regex", "--regexp"
+            options[:regex] = true
           when "--type", "-t"
             options[:type] = parse_pattern_type(tokens.shift)
           when /\A--type=(.+)\z/i
@@ -460,6 +463,8 @@ module Lxdb
           :bytes
         when "string", "str", "text"
           :string
+        when "regex", "regexp", "re"
+          :regex
         when "ptr", "pointer", "addr", "address"
           :ptr
         when "u8", "uint8", "i8", "int8", "u16", "uint16", "i16", "int16",
@@ -482,6 +487,11 @@ module Lxdb
       end
 
       def build_search_pattern(raw, options)
+        if regex_pattern_search?(options)
+          matcher = regex_matcher(raw.to_s, options)
+          return { matcher: matcher, preview: matcher[:preview] }
+        end
+
         if string_pattern_search?(raw, options)
           matcher = if options[:ignore_case]
                       case_insensitive_string_matcher(raw.to_s, options[:encoding])
@@ -494,6 +504,10 @@ module Lxdb
 
         bytes = parse_pattern(raw, options[:type], options[:endian], options[:encoding])
         { matcher: bytes, preview: bytes }
+      end
+
+      def regex_pattern_search?(options)
+        options[:regex] || options[:type] == :regex
       end
 
       def string_pattern_search?(raw, options)
@@ -518,6 +532,23 @@ module Lxdb
         end
 
         decode_escaped_string(source)
+      end
+
+      def regex_matcher(source, options)
+        unless options[:encoding] == :utf8
+          raise CommandError, "Regex search works on raw bytes; omit --encoding"
+        end
+
+        flags = options[:ignore_case] ? Regexp::IGNORECASE : 0
+        regex = Regexp.new(source.b, flags)
+        {
+          type: :regex,
+          regex: regex,
+          bytesize: 4097,
+          preview: source.b
+        }
+      rescue RegexpError => e
+        raise CommandError, "Invalid search regex: #{e.message}"
       end
 
       def decode_escaped_string(source)
@@ -735,14 +766,17 @@ module Lxdb
 
           haystack = carry + chunk
           search_pos = 0
-          while (pos = find_needle(haystack, needle, search_pos))
+          while (needle_match = find_needle(haystack, needle, search_pos))
+            pos = needle_match[:position]
+            length = needle_match[:length]
+            search_pos = next_search_position(needle, pos, length)
+            next if match_contained_in_carry?(pos, length, carry.bytesize)
+
             absolute = region[:start] + cursor + pos - carry.bytesize
             if aligned_address?(absolute, alignment)
               matches << { address: absolute, region: region }
               break if matches.size >= max_results
             end
-
-            search_pos = pos + 1
           end
 
           carry = carry_text(haystack, overlap)
@@ -757,21 +791,56 @@ module Lxdb
       end
 
       def find_needle(haystack, needle, search_pos)
-        return haystack.index(needle, search_pos) unless needle.is_a?(Hash)
+        unless needle.is_a?(Hash)
+          pos = haystack.index(needle, search_pos)
+          return nil unless pos
 
-        find_case_insensitive_string(haystack, needle, search_pos)
+          return { position: pos, length: needle.bytesize }
+        end
+
+        case needle[:type]
+        when :case_insensitive_string
+          find_case_insensitive_string(haystack, needle, search_pos)
+        when :regex
+          find_regex(haystack, needle, search_pos)
+        end
       end
 
       def find_case_insensitive_string(haystack, needle, search_pos)
         limit = haystack.bytesize - needle[:bytesize]
         cursor = search_pos
         while cursor <= limit
-          return cursor if case_insensitive_string_at?(haystack, needle, cursor)
+          return { position: cursor, length: needle[:bytesize] } if case_insensitive_string_at?(haystack, needle, cursor)
 
           cursor += 1
         end
 
         nil
+      end
+
+      def find_regex(haystack, needle, search_pos)
+        cursor = search_pos
+        while (match = needle[:regex].match(haystack.b, cursor))
+          length = match[0].bytesize
+          cursor = match.begin(0) + 1
+          next if length.zero?
+
+          return { position: match.begin(0), length: length }
+        end
+
+        nil
+      end
+
+      def next_search_position(needle, position, length)
+        if needle.is_a?(Hash) && needle[:type] == :regex
+          position + [length, 1].max
+        else
+          position + 1
+        end
+      end
+
+      def match_contained_in_carry?(position, length, carry_size)
+        position + length <= carry_size
       end
 
       def case_insensitive_string_at?(haystack, needle, position)

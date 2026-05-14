@@ -40,6 +40,17 @@ RSpec.describe Lxdb::Commands::Search do
       expect(region).to be_nil
       expect(options).to include(encoding: :utf16le, ignore_case: true)
     end
+
+    it "parses regex options" do
+      pattern, region, options = command.send(
+        :parse_search_args,
+        ["user_[0-9]+", "--regex", "--ignore-case"]
+      )
+
+      expect(pattern).to eq("user_[0-9]+")
+      expect(region).to be_nil
+      expect(options).to include(regex: true, ignore_case: true)
+    end
   end
 
   describe "#parse_pattern" do
@@ -92,6 +103,27 @@ RSpec.describe Lxdb::Commands::Search do
 
       expect(pattern[:matcher]).to include(type: :case_insensitive_string, bytesize: 2)
       expect(pattern[:preview]).to eq("az".b)
+    end
+
+    it "builds a regex matcher" do
+      pattern = command.send(
+        :build_search_pattern,
+        "user_[0-9]+",
+        { type: :bytes, endian: :little, encoding: :utf8, ignore_case: true, regex: true }
+      )
+
+      expect(pattern[:matcher]).to include(type: :regex, preview: "user_[0-9]+".b)
+      expect("USER_123").to match(pattern[:matcher][:regex])
+    end
+
+    it "rejects invalid regex patterns" do
+      expect do
+        command.send(
+          :build_search_pattern,
+          "[",
+          { type: :bytes, endian: :little, encoding: :utf8, ignore_case: false, regex: true }
+        )
+      end.to raise_error(Lxdb::CommandError, /Invalid search regex/)
     end
   end
 
@@ -154,6 +186,32 @@ RSpec.describe Lxdb::Commands::Search do
       matches = command.send(:search_region, region, pattern[:matcher], 10, 1)
 
       expect(matches.map { |match| match[:address] }).to eq([0x2004])
+    end
+
+    it "finds non-overlapping regex matches" do
+      memory = double("memory")
+      data = "abc123 def456".b
+      read_result = double("read_result", success?: true, data: data)
+      region = {
+        start: 0x3000,
+        end: 0x3000 + data.bytesize,
+        size: data.bytesize,
+        permissions: "r--",
+        readable: true,
+        name: "test"
+      }
+      pattern = command.send(
+        :build_search_pattern,
+        "\\d+",
+        { type: :bytes, endian: :little, encoding: :utf8, ignore_case: false, regex: true }
+      )
+
+      allow(session).to receive(:memory).and_return(memory)
+      allow(memory).to receive(:read_safe).with(0x3000, data.bytesize).and_return(read_result)
+
+      matches = command.send(:search_region, region, pattern[:matcher], 10, 1)
+
+      expect(matches.map { |match| match[:address] }).to eq([0x3003, 0x300a])
     end
   end
 end
