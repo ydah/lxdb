@@ -31,6 +31,29 @@ RSpec.describe Lxdb::Plugins::Loader do
         expect(loader.loaded_plugins.map { |plugin| plugin.class.plugin_info[:name] }).to eq(["test_plugin"])
       end
     end
+
+    it "warns and continues when plugin teardown fails during unload" do
+      Dir.mktmpdir do |dir|
+        plugin_path = File.join(dir, "bad_teardown_plugin.rb")
+        File.write(plugin_path, <<~RUBY)
+          Class.new(Lxdb::Plugins::Base) do
+            plugin name: "bad_teardown", version: "1.0.0"
+
+            def teardown
+              raise "boom"
+            end
+          end
+        RUBY
+
+        loader = described_class.new(session, paths: [])
+        loader.load_plugin(plugin_path)
+
+        expect do
+          expect(loader.unload_plugin("bad_teardown")).to be true
+        end.to output(/Plugin teardown failed while unloading bad_teardown: RuntimeError: boom/).to_stderr
+        expect(loader.loaded_plugins).to be_empty
+      end
+    end
   end
 
   describe "#reload_all" do
