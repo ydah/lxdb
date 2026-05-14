@@ -133,7 +133,7 @@ session.terminate
 | `x/<n><fmt><unit> <addr>` | Examine memory (x/16gx $rsp) |
 | `telescope <addr> [count]` | Smart pointer chain display |
 | `hexdump <addr> <size>` | Hex dump memory region |
-| `search <pattern> [region]` | Search memory for pattern |
+| `search <pattern> [region]` | Search memory for pattern; supports `--regex`, `--encoding`, `--type`, `--align`, and `--perm` filters |
 
 ### Context Display
 
@@ -160,7 +160,7 @@ session.terminate
 | Command | Description |
 |---------|-------------|
 | `checksec` | Check binary security features |
-| `rop [pattern] [--depth N] [--max N]` | Search for ROP gadgets |
+| `rop [pattern] [--depth N] [--max N] [--backend auto|lldb|objdump] [--diagnostics]` | Search for ROP gadgets |
 | `pattern create <len>` | Create cyclic pattern |
 | `pattern offset <value>` | Find pattern offset |
 | `vmmap` | Show memory mappings |
@@ -173,6 +173,16 @@ session.terminate
 | `info mappings` | Memory mappings |
 | `info threads` | List threads |
 | `info breakpoints` | List breakpoints |
+
+## Testing
+
+```bash
+bundle exec rake test
+bundle exec rake integration
+bundle exec rake ci
+```
+
+`rake test` runs the normal unit/spec suite. `rake integration` enables opt-in LLDB integration specs by setting `LXDB_INTEGRATION=1`; specs that need a missing external tool still skip themselves.
 
 ## Context Display
 
