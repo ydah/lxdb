@@ -26,6 +26,11 @@
 # Install Xcode Command Line Tools (includes LLDB)
 xcode-select --install
 
+# Install LLVM headers/libraries used by the lldb Ruby gem native extension
+brew install llvm
+export PATH="$(brew --prefix llvm)/bin:$PATH"
+export LLDB_DIR="$(brew --prefix llvm)"
+
 # Enable developer mode for debugging
 sudo DevToolsSecurity -enable
 ```
@@ -33,7 +38,12 @@ sudo DevToolsSecurity -enable
 ### Linux Setup
 
 ```bash
-# Debian/Ubuntu
+# Debian/Ubuntu 24.04+
+sudo apt-get install lldb-18 liblldb-18-dev
+export PATH="/usr/lib/llvm-18/bin:$PATH"
+export LLDB_DIR="/usr/lib/llvm-18"
+
+# Debian/Ubuntu generic fallback
 sudo apt-get install lldb liblldb-dev
 
 # Fedora
@@ -363,7 +373,13 @@ cd lxdb
 bundle install
 
 # Run tests
-bundle exec rspec
+bundle exec rake test
+
+# Run LLDB integration tests
+bundle exec rake integration
+
+# Require process-backed LLDB Ruby bindings instead of allowing environment skips
+LXDB_REQUIRE_LLDB_BINDINGS=1 bundle exec rake integration
 ```
 
 ## Contributing
@@ -390,6 +406,6 @@ MIT License - see [LICENSE](LICENSE) file for details.
 
 The Mach-O GOT/dyld support is covered by a checked-in binary fixture at `spec/fixtures/macho/minimal_dyld_info.macho` and by `spec/fixtures/macho/chained_pointer_corpus.yml`. The corpus keeps representative chained pointer formats explicit so decoder regressions are visible without depending on host tooling.
 
-`lxdb --check-lldb-bindings` performs an explicit preflight for the LLDB Ruby bindings. Set `LXDB_REQUIRE_LLDB_BINDINGS=1` to make missing bindings fail integration instead of being reported as a pending environment limitation. The `LLDB Ruby bindings` GitHub Actions workflow is intentionally manual so it can be run on a macOS runner with known-good LLDB Ruby bindings.
+`lxdb --check-lldb-bindings` performs an explicit preflight for the LLDB Ruby bindings. Set `LXDB_REQUIRE_LLDB_BINDINGS=1` to make missing bindings fail integration instead of being reported as a pending environment limitation. The main GitHub Actions `LLDB integration` job runs with this setting so broken LLDB Ruby bindings fail CI. The manual `LLDB Ruby bindings` workflow remains available for an explicit environment check.
 
-`ruby-head` is intentionally part of the required CI matrix. Failures there should be triaged as either upstream Ruby regressions or compatibility work in lxdb, not silently ignored as experimental signal.
+`ruby-head` is intentionally part of the required CI matrix. Failures there should be triaged as either upstream Ruby regressions or compatibility work in lxdb, not silently ignored as experimental signal. CI uses the current Node 24-compatible `actions/checkout` release and installs LLDB development files before Bundler resolves the `lldb` native extension.

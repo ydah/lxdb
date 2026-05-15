@@ -6,6 +6,9 @@ on:
       - main
   pull_request:
 
+permissions:
+  contents: read
+
 jobs:
   test:
     name: Ruby specs (${{ matrix.os }}, Ruby ${{ matrix.ruby }})
@@ -23,7 +26,7 @@ jobs:
           - head
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6.0.2
 
       - name: Install LLDB development files (Ubuntu)
         if: runner.os == 'Linux'
@@ -51,9 +54,11 @@ jobs:
     name: LLDB integration
     runs-on: macos-latest
     timeout-minutes: 10
+    env:
+      LXDB_REQUIRE_LLDB_BINDINGS: "1"
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6.0.2
 
       - name: Install LLDB development files
         run: |
@@ -65,5 +70,8 @@ jobs:
         with:
           ruby-version: "3.4"
           bundler-cache: true
+
+      - name: Check LLDB Ruby bindings
+        run: bundle exec exe/lxdb --check-lldb-bindings
 
       - run: bundle exec rake integration
