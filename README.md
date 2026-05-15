@@ -179,9 +179,16 @@ session.terminate
 ```bash
 lxdb --batch --command "doctor common"
 lxdb ./target --batch --command "help rop"
+lxdb ./target --launch --batch --command "rop --max 1" --command "search marker --type string"
 ```
 
-`--batch` exits after startup commands instead of entering the REPL. This is intended for CI smoke tests and scripted diagnostics.
+`--batch` exits after startup commands instead of entering the REPL. `--launch` starts the executable before commands run, so scripted checks can exercise process-backed commands such as `rop`, `got`, and `search`.
+
+## Exploit Tool Diagnostics
+
+`rop --backend auto` prefers `objdump` when available and falls back to LLDB when file-address translation or disassembly boundary validation fails. Use `--backend lldb` to force LLDB.
+
+Mach-O `got` output includes dyld chained fixup metadata: header fields, segment starts, imports, symbol names, and bounded pointer-chain traversal. The traversal limits are configurable with `LXDB_MACHO_*` environment variables when a full dump is needed.
 
 ## Testing
 
@@ -198,7 +205,13 @@ Useful environment variables:
 | Variable | Description |
 |----------|-------------|
 | `LXDB_TOOL_TIMEOUT` | External tool timeout in seconds; defaults to `5` |
+| `LXDB_TOOL_OUTPUT_LIMIT` | Maximum captured output per external command; defaults to `1048576` bytes |
 | `LXDB_REGEX_TIMEOUT` | Ruby regex timeout for memory regex search; defaults to `1.0`, use `--no-regex-timeout` per command to disable |
+| `LXDB_MACHO_DYLD_ENTRY_LIMIT` | Maximum normalized Mach-O dyld metadata entries; defaults to `128`, set `0` for no limit |
+| `LXDB_MACHO_FIXUP_SEGMENT_LIMIT` | Maximum chained-fixup segments parsed; defaults to `256`, set `0` for no limit |
+| `LXDB_MACHO_FIXUP_PAGE_LIMIT` | Maximum chained-fixup pages parsed per segment; defaults to `4096`, set `0` for no limit |
+| `LXDB_MACHO_FIXUP_IMPORT_LIMIT` | Maximum chained-fixup imports parsed; defaults to `4096`, set `0` for no limit |
+| `LXDB_MACHO_FIXUP_POINTER_LIMIT` | Maximum chained pointers traversed; defaults to `4096`, set `0` for no limit |
 
 ## Context Display
 
