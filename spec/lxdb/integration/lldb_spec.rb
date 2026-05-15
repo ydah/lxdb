@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require "spec_helper"
+require "rbconfig"
 require "tmpdir"
 require "timeout"
 
@@ -27,6 +28,16 @@ RSpec.describe "LLDB integration", :integration do
     end
   end
 
+  def run_lxdb(*args)
+    exe = File.expand_path("../../../exe/lxdb", __dir__)
+    lib = File.expand_path("../../../lib", __dir__)
+    command = [RbConfig.ruby, "-I#{lib}", exe, *args]
+
+    Timeout.timeout(15) do
+      IO.popen(command, err: [:child, :out], &:read)
+    end
+  end
+
   before do
     skip "set LXDB_INTEGRATION=1 to run LLDB integration specs" unless integration_enabled?
     skip "lldb is not available on PATH" unless command_available?("lldb")
@@ -38,6 +49,30 @@ RSpec.describe "LLDB integration", :integration do
     end
 
     expect(output).to match(/lldb/i)
+  end
+
+  it "can invoke the lxdb CLI without entering the REPL" do
+    version = run_lxdb("--version")
+    help = run_lxdb("--help")
+
+    expect(version).to match(/lxdb version/i)
+    expect(help).to match(/--batch/)
+  end
+
+  it "can execute lxdb batch commands end-to-end" do
+    output = run_lxdb(
+      "--no-color",
+      "--batch",
+      "--command", "doctor common",
+      "--command", "help rop",
+      "--command", "help got",
+      "--command", "help search"
+    )
+
+    expect(output).to match(/External tool diagnostics/)
+    expect(output).to match(/^rop$/)
+    expect(output).to match(/^got$/)
+    expect(output).to match(/^search$/)
   end
 
   it "can inspect a real target image for GOT/search primitives" do

@@ -28,6 +28,10 @@ module Lxdb
           main_loop
         end
 
+        def execute(line)
+          execute_line(line)
+        end
+
         private
 
         def print_banner

@@ -19,6 +19,10 @@ parser = OptionParser.new do |opts|
     options[:commands] << cmd
   end
 
+  opts.on("-b", "--batch", "Exit after startup commands") do
+    options[:batch] = true
+  end
+
   opts.on("--no-color", "Disable color output") do
     options[:no_color] = true
   end
@@ -61,17 +65,20 @@ begin
     session.attach(options[:pid])
   end
 
-  # Execute startup commands
+  # Execute startup commands through the lxdb command dispatcher.
+  command_runner = Lxdb::UI::CLI::REPL.new(session)
   options[:commands]&.each do |cmd|
     puts "> #{cmd}"
-    session.execute_command(cmd)
+    command_runner.execute(cmd)
   end
+
+  exit if options[:batch]
 
   # Run interface
   if options[:tui]
     Lxdb::UI::TUI::Application.new(session).run
   else
-    Lxdb::UI::CLI::REPL.new(session).run
+    command_runner.run
   end
 rescue Lxdb::Error => e
   warn "Error: #{e.message}"
