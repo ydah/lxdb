@@ -1,0 +1,49 @@
+---
+- name: arm64e_rebase
+  format: 1
+  raw: 0
+  expected:
+    kind: rebase
+    authenticated: false
+- name: ptr64_rebase
+  format: 2
+  raw: 0
+  expected:
+    kind: rebase
+    authenticated: false
+- name: ptr32_rebase
+  format: 3
+  raw: 0
+  expected:
+    kind: rebase
+    authenticated: false
+- name: firmware64_rebase
+  format: 4
+  raw: 0
+  expected:
+    kind: cache
+    authenticated: false
+- name: ptr64_offset_rebase
+  format: 5
+  raw: 0
+  expected:
+    kind: firmware
+    authenticated: false
+- name: arm64e_userland24_rebase
+  format: 7
+  raw: 0
+  expected:
+    kind: rebase
+    authenticated: false
+- name: x86_64_kernel_cache
+  format: 9
+  raw: 0
+  expected:
+    kind: kernel-cache
+    authenticated: false
+- name: arm64e_shared_cache_rebase
+  format: 13
+  raw: 0
+  expected:
+    kind: rebase
+    authenticated: false
