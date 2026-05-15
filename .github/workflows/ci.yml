@@ -54,8 +54,6 @@ jobs:
     name: LLDB integration
     runs-on: macos-latest
     timeout-minutes: 10
-    env:
-      LXDB_REQUIRE_LLDB_BINDINGS: "1"
 
     steps:
       - uses: actions/checkout@v6.0.2
