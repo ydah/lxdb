@@ -23,6 +23,10 @@ parser = OptionParser.new do |opts|
     options[:batch] = true
   end
 
+  opts.on("--launch", "Launch executable before startup commands") do
+    options[:launch] = true
+  end
+
   opts.on("--no-color", "Disable color output") do
     options[:no_color] = true
   end
@@ -44,8 +48,9 @@ end
 
 # Parse arguments, stopping at '--'
 args = ARGV.dup
+program_args = []
 if (idx = args.index("--"))
-  args[(idx + 1)..]
+  program_args = args[(idx + 1)..] || []
   args = args[0...idx]
 end
 
@@ -63,6 +68,10 @@ begin
   # Handle --pid
   if options[:pid]
     session.attach(options[:pid])
+  elsif options[:launch]
+    raise Lxdb::CommandError, "--launch requires an executable" unless executable
+
+    session.launch(args: program_args)
   end
 
   # Execute startup commands through the lxdb command dispatcher.

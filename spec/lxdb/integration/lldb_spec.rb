@@ -75,6 +75,44 @@ RSpec.describe "LLDB integration", :integration do
     expect(output).to match(/^search$/)
   end
 
+  it "can execute lxdb commands against a launched process" do
+    skip "cc is not available on PATH" unless command_available?("cc")
+
+    Dir.mktmpdir do |dir|
+      source = File.join(dir, "target.c")
+      target = File.join(dir, "target")
+      File.write(source, <<~C)
+        #include <stdio.h>
+        volatile const char *marker = "LXDB_E2E_MARKER";
+        int main(void) {
+          puts((const char *)marker);
+          return 0;
+        }
+      C
+
+      compile_output = Timeout.timeout(10) do
+        IO.popen(["cc", "-g", "-O0", source, "-o", target], err: [:child, :out], &:read)
+      end
+      skip "failed to build debug target: #{compile_output}" unless $?.success? && File.executable?(target)
+
+      output = run_lxdb(
+        "--no-color",
+        "--launch",
+        "--batch",
+        "--command", "rop --max 1 --depth 8 --backend lldb --diagnostics",
+        "--command", "search LXDB_E2E_MARKER --type string --limit 1",
+        "--command", "got",
+        target
+      )
+      skip "lxdb LLDB Ruby bindings are unavailable" if output.match?(/LLDB is not available/i)
+
+      expect(output).to include("> rop --max 1 --depth 8 --backend lldb --diagnostics")
+      expect(output).to include("> search LXDB_E2E_MARKER --type string --limit 1")
+      expect(output).to include("> got")
+      expect(output).not_to match(/(?:NameError|NoMethodError|uninitialized constant|Error:)/)
+    end
+  end
+
   it "can inspect a real target image for GOT/search primitives" do
     target = "/bin/echo"
     skip "#{target} is not executable" unless File.executable?(target)
