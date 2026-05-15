@@ -57,6 +57,17 @@ RSpec.describe "LLDB integration", :integration do
 
     expect(version).to match(/lxdb version/i)
     expect(help).to match(/--batch/)
+    expect(help).to match(/--check-lldb-bindings/)
+  end
+
+  it "reports LLDB Ruby binding availability explicitly" do
+    output = run_lxdb("--check-lldb-bindings")
+
+    if ENV["LXDB_REQUIRE_LLDB_BINDINGS"] == "1"
+      expect(output).to match(/LLDB Ruby bindings: available/)
+    else
+      expect(output).to match(/LLDB Ruby bindings: (?:available|unavailable)/)
+    end
   end
 
   it "can execute lxdb batch commands end-to-end" do
@@ -104,7 +115,11 @@ RSpec.describe "LLDB integration", :integration do
         "--command", "got",
         target
       )
-      skip "lxdb LLDB Ruby bindings are unavailable" if output.match?(/LLDB is not available/i)
+      if output.match?(/LLDB is not available/i)
+        raise "lxdb LLDB Ruby bindings are unavailable" if ENV["LXDB_REQUIRE_LLDB_BINDINGS"] == "1"
+
+        skip "lxdb LLDB Ruby bindings are unavailable"
+      end
 
       expect(output).to include("> rop --max 1 --depth 8 --backend lldb --diagnostics")
       expect(output).to include("> search LXDB_E2E_MARKER --type string --limit 1")

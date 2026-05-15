@@ -180,15 +180,18 @@ session.terminate
 lxdb --batch --command "doctor common"
 lxdb ./target --batch --command "help rop"
 lxdb ./target --launch --batch --command "rop --max 1" --command "search marker --type string"
+lxdb --check-lldb-bindings
 ```
 
 `--batch` exits after startup commands instead of entering the REPL. `--launch` starts the executable before commands run, so scripted checks can exercise process-backed commands such as `rop`, `got`, and `search`.
+`--check-lldb-bindings` is a non-interactive preflight for environments that must run process-backed lxdb integration tests. Set `LXDB_REQUIRE_LLDB_BINDINGS=1` in integration environments to fail instead of skipping those process-backed checks.
 
 ## Exploit Tool Diagnostics
 
 `rop --backend auto` prefers `objdump` when available and falls back to LLDB when file-address translation or disassembly boundary validation fails. Use `--backend lldb` to force LLDB.
 
 Mach-O `got` output includes dyld chained fixup metadata: header fields, segment starts, imports, symbol names, and bounded pointer-chain traversal. The traversal limits are configurable with `LXDB_MACHO_*` environment variables when a full dump is needed.
+Representative dyld chained pointer formats are decoded for 32-bit, 64-bit, ARM64E, firmware, cache, and kernel-cache styles. Unknown formats are still reported with raw pointer values.
 
 ## Testing
 
@@ -206,6 +209,7 @@ Useful environment variables:
 |----------|-------------|
 | `LXDB_TOOL_TIMEOUT` | External tool timeout in seconds; defaults to `5` |
 | `LXDB_TOOL_OUTPUT_LIMIT` | Maximum captured output per external command; defaults to `1048576` bytes |
+| `LXDB_REQUIRE_LLDB_BINDINGS` | Require process-backed integration specs to have working LLDB Ruby bindings; defaults to skip-on-missing |
 | `LXDB_REGEX_TIMEOUT` | Ruby regex timeout for memory regex search; defaults to `1.0`, use `--no-regex-timeout` per command to disable |
 | `LXDB_MACHO_DYLD_ENTRY_LIMIT` | Maximum normalized Mach-O dyld metadata entries; defaults to `128`, set `0` for no limit |
 | `LXDB_MACHO_FIXUP_SEGMENT_LIMIT` | Maximum chained-fixup segments parsed; defaults to `256`, set `0` for no limit |

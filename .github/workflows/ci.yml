@@ -11,7 +11,6 @@ jobs:
     name: Ruby specs (${{ matrix.os }}, Ruby ${{ matrix.ruby }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
-    continue-on-error: ${{ matrix.experimental }}
     strategy:
       fail-fast: false
       matrix:
@@ -21,15 +20,7 @@ jobs:
         ruby:
           - "3.3"
           - "3.4"
-        experimental:
-          - false
-        include:
-          - os: ubuntu-latest
-            ruby: head
-            experimental: true
-          - os: macos-latest
-            ruby: head
-            experimental: true
+          - head
 
     steps:
       - uses: actions/checkout@v4
