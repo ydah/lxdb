@@ -133,7 +133,7 @@ session.terminate
 | `x/<n><fmt><unit> <addr>` | Examine memory (x/16gx $rsp) |
 | `telescope <addr> [count]` | Smart pointer chain display |
 | `hexdump <addr> <size>` | Hex dump memory region |
-| `search <pattern> [region]` | Search memory for pattern; supports `--regex`, `--encoding`, `--type`, `--align`, and `--perm` filters |
+| `search <pattern> [region]` | Search memory for pattern; supports `--regex`, `--regex-timeout`, `--encoding`, `--type`, `--align`, and `--perm` filters |
 
 ### Context Display
 
@@ -174,6 +174,15 @@ session.terminate
 | `info threads` | List threads |
 | `info breakpoints` | List breakpoints |
 
+## Batch Mode
+
+```bash
+lxdb --batch --command "doctor common"
+lxdb ./target --batch --command "help rop"
+```
+
+`--batch` exits after startup commands instead of entering the REPL. This is intended for CI smoke tests and scripted diagnostics.
+
 ## Testing
 
 ```bash
@@ -183,6 +192,13 @@ bundle exec rake ci
 ```
 
 `rake test` runs the normal unit/spec suite. `rake integration` enables opt-in LLDB integration specs by setting `LXDB_INTEGRATION=1`; specs that need a missing external tool still skip themselves.
+
+Useful environment variables:
+
+| Variable | Description |
+|----------|-------------|
+| `LXDB_TOOL_TIMEOUT` | External tool timeout in seconds; defaults to `5` |
+| `LXDB_REGEX_TIMEOUT` | Ruby regex timeout for memory regex search; defaults to `1.0`, use `--no-regex-timeout` per command to disable |
 
 ## Context Display
 
