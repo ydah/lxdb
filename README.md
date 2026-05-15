@@ -383,3 +383,13 @@ MIT License - see [LICENSE](LICENSE) file for details.
 - [pwndbg](https://github.com/pwndbg/pwndbg) - Inspiration for context display and commands
 - [GEF](https://github.com/hugsy/gef) - Additional feature inspiration
 - [lldb-ruby](https://github.com/ydah/lldb-ruby) - LLDB Ruby bindings
+
+## Tool implementation coverage notes
+
+`Lxdb::Commands.run_external_command` exposes both merged and separated process output. Use `output` when command ordering compatibility matters, and use `stdout`, `stderr`, `stdout_truncated`, and `stderr_truncated` when a caller needs stream-specific diagnostics.
+
+The Mach-O GOT/dyld support is covered by a checked-in binary fixture at `spec/fixtures/macho/minimal_dyld_info.macho` and by `spec/fixtures/macho/chained_pointer_corpus.yml`. The corpus keeps representative chained pointer formats explicit so decoder regressions are visible without depending on host tooling.
+
+`lxdb --check-lldb-bindings` performs an explicit preflight for the LLDB Ruby bindings. Set `LXDB_REQUIRE_LLDB_BINDINGS=1` to make missing bindings fail integration instead of being reported as a pending environment limitation. The `LLDB Ruby bindings` GitHub Actions workflow is intentionally manual so it can be run on a macOS runner with known-good LLDB Ruby bindings.
+
+`ruby-head` is intentionally part of the required CI matrix. Failures there should be triaged as either upstream Ruby regressions or compatibility work in lxdb, not silently ignored as experimental signal.

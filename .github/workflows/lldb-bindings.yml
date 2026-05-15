@@ -1,0 +1,20 @@
+name: LLDB Ruby bindings
+
+on:
+  workflow_dispatch:
+
+jobs:
+  required-bindings:
+    runs-on: macos-latest
+    env:
+      LXDB_REQUIRE_LLDB_BINDINGS: "1"
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ruby/setup-ruby@v1
+        with:
+          ruby-version: "3.4"
+          bundler-cache: true
+      - name: Check LLDB Ruby bindings
+        run: bundle exec exe/lxdb --check-lldb-bindings
+      - name: Run integration with required bindings
+        run: bundle exec rake integration
