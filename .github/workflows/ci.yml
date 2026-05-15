@@ -25,6 +25,21 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
+      - name: Install LLDB development files (Ubuntu)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y lldb-18 liblldb-18-dev
+          echo "/usr/lib/llvm-18/bin" >> "$GITHUB_PATH"
+          echo "LLDB_DIR=/usr/lib/llvm-18" >> "$GITHUB_ENV"
+
+      - name: Install LLDB development files (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install llvm
+          echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
+          echo "LLDB_DIR=$(brew --prefix llvm)" >> "$GITHUB_ENV"
+
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: ${{ matrix.ruby }}
@@ -39,6 +54,12 @@ jobs:
 
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install LLDB development files
+        run: |
+          brew install llvm
+          echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
+          echo "LLDB_DIR=$(brew --prefix llvm)" >> "$GITHUB_ENV"
 
       - uses: ruby/setup-ruby@v1
         with:

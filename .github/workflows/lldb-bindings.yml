@@ -10,6 +10,11 @@ jobs:
       LXDB_REQUIRE_LLDB_BINDINGS: "1"
     steps:
       - uses: actions/checkout@v4
+      - name: Install LLDB development files
+        run: |
+          brew install llvm
+          echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
+          echo "LLDB_DIR=$(brew --prefix llvm)" >> "$GITHUB_ENV"
       - uses: ruby/setup-ruby@v1
         with:
           ruby-version: "3.4"
